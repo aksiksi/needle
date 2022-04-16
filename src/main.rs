@@ -1,6 +1,5 @@
 use std::path::Path;
 
-use bitflags::bitflags;
 use ffmpeg_next::format::Pixel;
 use rgb::FromSlice;
 
@@ -71,35 +70,6 @@ impl VideoDecoder {
     }
 }
 
-bitflags! {
-    pub struct SeekFlags: i32 {
-        const ANY = ffmpeg_next::ffi::AVSEEK_FLAG_ANY as i32;
-        const BACKWARD = ffmpeg_next::ffi::AVSEEK_FLAG_BACKWARD as i32;
-        const BYTE = ffmpeg_next::ffi::AVSEEK_FLAG_BYTE as i32;
-        const FRAME = ffmpeg_next::ffi::AVSEEK_FLAG_FRAME as i32;
-    }
-}
-
-trait InputExt {
-    fn seek_to_frame(&mut self, stream_idx: usize, timestamp: i64, flags: SeekFlags);
-}
-
-impl InputExt for ffmpeg_next::format::context::Input {
-    fn seek_to_frame(&mut self, stream_idx: usize, timestamp: i64, flags: SeekFlags) {
-        unsafe {
-            match ffmpeg_next::ffi::av_seek_frame(
-                self.as_mut_ptr(),
-                stream_idx as i32,
-                timestamp,
-                flags.bits(),
-            ) {
-                s if s >= 0 => return,
-                e => panic!("{}", e),
-            }
-        }
-    }
-}
-
 /// Compares two videos.
 struct VideoComparator {
     src_ctx: ffmpeg_next::format::context::Input,
@@ -157,7 +127,7 @@ impl VideoComparator {
     ) -> anyhow::Result<()> {
         let time_base: f64 = ctx.stream(stream_idx).unwrap().time_base().into();
         let timestamp = (timestamp / time_base) as i64;
-        ctx.seek_to_frame(stream_idx, timestamp, SeekFlags::empty());
+        ctx.seek_to_frame(stream_idx as i32, timestamp, ffmpeg_next::format::context::input::SeekFlags::empty())?;
         Ok(())
     }
 
