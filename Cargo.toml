@@ -1,0 +1,13 @@
+[package]
+name = "needle"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ffmpeg-next = "5.0.3"
+dssim-core = "3.2.1"
+rgb = "0.8.32"
+# probabilistic-collections = "*"
+anyhow = "1"
+md5 = "0.7.0"
+bitflags = "1"
