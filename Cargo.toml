@@ -5,8 +5,5 @@ edition = "2021"
 
 [dependencies]
 ffmpeg-next = { git = "https://github.com/aksiksi/rust-ffmpeg" }
-dssim-core = "3.2.1"
-rgb = "0.8.32"
-# probabilistic-collections = "*"
 anyhow = "1"
-md5 = "0.7.0"
+blockhash = "0.4.0"

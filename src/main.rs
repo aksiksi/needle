@@ -1,7 +1,7 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use ffmpeg_next::format::Pixel;
-use rgb::FromSlice;
 
 const S1_PATH: &str = "/Users/aksiksi/Movies/ep1.mkv";
 const S2_PATH: &str = "/Users/aksiksi/Movies/ep2.mkv";
@@ -58,15 +58,29 @@ impl VideoDecoder {
     fn receive_frame(&mut self, frame: &mut ffmpeg_next::frame::Video) -> anyhow::Result<()> {
         Ok(self.decoder.receive_frame(frame)?)
     }
+}
 
-    fn receive_frame_and_convert(
-        &mut self,
-        frame: &mut ffmpeg_next::frame::Video,
-        converted_frame: &mut ffmpeg_next::frame::Video,
-    ) -> anyhow::Result<()> {
-        self.receive_frame(frame)?;
-        self.convert_frame(frame, converted_frame)?;
-        Ok(())
+// Wraps an RGB video frame to implement [blockhash::Image].
+struct RgbFrameView<'a> {
+    width: u32,
+    height: u32,
+    inner: &'a [u8],
+}
+
+impl<'a> blockhash::Image for RgbFrameView<'a> {
+    #[inline(always)]
+    fn dimensions(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+
+    #[inline(always)]
+    fn get_pixel(&self, x: u32, y: u32) -> [u8; 4] {
+        let (x, y, width) = (x as usize, y as usize, self.width as usize);
+        let mut data = [0xFF; 4]; // alpha defaults to 0xFF
+        data[0] = self.inner[y * width + x];
+        data[1] = self.inner[y * width + x + 1];
+        data[2] = self.inner[y * width + x + 2];
+        data
     }
 }
 
@@ -110,14 +124,31 @@ impl VideoComparator {
     }
 
     #[inline(always)]
-    fn hash_frame(f: &ffmpeg_next::frame::Video) -> md5::Digest {
-        md5::compute(f.data(0))
+    fn hash_frame(f: &ffmpeg_next::frame::Video) -> blockhash::Blockhash144 {
+        let frame_view = RgbFrameView {
+            width: f.width(),
+            height: f.height(),
+            inner: f.data(0),
+        };
+        blockhash::blockhash144(&frame_view)
     }
 
-    fn compare_two_frames(f1: &ffmpeg_next::frame::Video, f2: &ffmpeg_next::frame::Video) -> bool {
+    #[inline(always)]
+    fn compare_two_frames(f1: &ffmpeg_next::frame::Video, f2: &ffmpeg_next::frame::Video) -> u32 {
         let d1 = Self::hash_frame(f1);
         let d2 = Self::hash_frame(f2);
-        return d1 == d2;
+        return d1.distance(&d2);
+    }
+
+    // Returns the presentation timestamp for this frame, in seconds.
+    fn frame_timestamp(
+        ctx: &mut ffmpeg_next::format::context::Input,
+        stream_idx: usize,
+        frame: &ffmpeg_next::frame::Video,
+    ) -> Option<f64> {
+        ctx.stream(stream_idx)
+            .map(|s| f64::from(s.time_base()))
+            .and_then(|time_base| frame.timestamp().map(|t| t as f64 * time_base))
     }
 
     fn seek_to_timestamp(
@@ -127,36 +158,40 @@ impl VideoComparator {
     ) -> anyhow::Result<()> {
         let time_base: f64 = ctx.stream(stream_idx).unwrap().time_base().into();
         let timestamp = (timestamp / time_base) as i64;
-        ctx.seek_to_frame(stream_idx as i32, timestamp, ffmpeg_next::format::context::input::SeekFlags::empty())?;
+        ctx.seek_to_frame(
+            stream_idx as i32,
+            timestamp,
+            ffmpeg_next::format::context::input::SeekFlags::empty(),
+        )?;
         Ok(())
     }
 
-    fn find_next_key_frame(
+    fn find_next_frame(
         ctx: &mut ffmpeg_next::format::context::Input,
         decoder: &mut VideoDecoder,
         stream_idx: usize,
         frame_buf: &mut ffmpeg_next::frame::Video,
         num_frames_to_skip: usize,
-    ) -> anyhow::Result<i64> {
-        let mut frame_count = 0;
+    ) -> anyhow::Result<f64> {
+        let packet_iter = ctx
+            .packets()
+            .filter(|(s, _)| s.index() == stream_idx)
+            .map(|(_, p)| p);
 
-        for (s, p) in ctx.packets() {
-            if s.index() != stream_idx {
-                continue;
+        // TODO(aksiksi): Figure out why we get duplicate frames on successive calls
+        // to this method.
+        for (i, mut p) in packet_iter.enumerate() {
+            if i < num_frames_to_skip {
+                // Mark this packet for discard.
+                p.set_flags(ffmpeg_next::codec::packet::Flags::DISCARD);
             }
-            // if !p.is_key() {
-            //     continue;
-            // }
             decoder.send_packet(&p)?;
-            while decoder.receive_frame(frame_buf).is_ok() {
-                frame_count += 1;
-                if frame_count == num_frames_to_skip - 1 {
-                    return Ok(dbg!(frame_buf.timestamp().unwrap_or(0)));
-                }
+            if decoder.receive_frame(frame_buf).is_ok() {
+                break;
             }
         }
 
-        Ok(0)
+        Ok(Self::frame_timestamp(ctx, stream_idx, &frame_buf).unwrap())
     }
 
     fn compare(&mut self, count: usize) -> anyhow::Result<()> {
@@ -180,46 +215,34 @@ impl VideoComparator {
         );
         let mut dst_frame_rgb =
             ffmpeg_next::frame::Video::new(Pixel::RGB24, dst_decoder.width(), dst_decoder.height());
+        let mut src_frame_hash_map = HashMap::new();
 
         Self::seek_to_timestamp(&mut self.src_ctx, src_stream_idx, 208.0)?;
         Self::seek_to_timestamp(&mut self.dst_ctx, dst_stream_idx, 174.0)?;
 
         for _ in 0..count {
-            let t1 = Self::find_next_key_frame(
+            let t1 = Self::find_next_frame(
                 &mut self.src_ctx,
                 &mut src_decoder,
                 src_stream_idx,
                 &mut src_frame,
                 100,
             )?;
-            let t2 = Self::find_next_key_frame(
+            let t2 = Self::find_next_frame(
                 &mut self.dst_ctx,
                 &mut dst_decoder,
                 dst_stream_idx,
                 &mut dst_frame,
                 100,
             )?;
+            dbg!(t1, t2);
 
             src_decoder.convert_frame(&src_frame, &mut src_frame_rgb)?;
             dst_decoder.convert_frame(&dst_frame, &mut dst_frame_rgb)?;
 
-            let d = dssim_core::Dssim::new();
-            let img1 = d
-                .create_image_rgb(
-                    src_frame_rgb.data(0).as_rgb(),
-                    src_frame_rgb.width() as usize,
-                    src_frame_rgb.height() as usize,
-                )
-                .unwrap();
-            let img2 = d
-                .create_image_rgb(
-                    dst_frame_rgb.data(0).as_rgb(),
-                    dst_frame_rgb.width() as usize,
-                    dst_frame_rgb.height() as usize,
-                )
-                .unwrap();
-            let (val, _) = d.compare(&img1, &img2);
-            dbg!(val);
+            src_frame_hash_map.insert(Self::hash_frame(&src_frame_rgb), t1);
+
+            dbg!(Self::compare_two_frames(&src_frame_rgb, &dst_frame_rgb));
         }
 
         Ok(())

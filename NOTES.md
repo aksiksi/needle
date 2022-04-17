@@ -9,3 +9,12 @@
     * The time at which a packet needs to be decoded
     * This must be less than or equal to the PTS for a given packet
     * DTS is important for packets that contain P-frames and B-frames, as you need to decode other packets before this one can be decoded
+
+# Locality Sensitive Hashing (LSH)
+
+
+
+
+# Approach
+
+1. Iterate over 30 second slices of the source video and compute a "hash"
