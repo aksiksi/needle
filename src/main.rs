@@ -10,7 +10,10 @@ const S2_PATH: &str = "/Users/aksiksi/Movies/ep2.mkv";
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("invalid timestamp for seek: requested={requested:?} duration={duration:?}")]
-    InvalidSeekTimestamp { requested: Duration, duration: Duration },
+    InvalidSeekTimestamp {
+        requested: Duration,
+        duration: Duration,
+    },
 }
 
 /// Wraps the `ffmpeg` video decoder.
@@ -67,7 +70,7 @@ impl VideoDecoder {
     }
 }
 
-// Wraps an RGB video frame to implement [blockhash::Image].
+// Wraps an ffmpeg RGB24 video frame to implement [blockhash::Image].
 struct RgbFrameView<'a> {
     width: u32,
     height: u32,
@@ -215,6 +218,46 @@ impl VideoComparator {
         Ok(Self::frame_timestamp(ctx, stream_idx, &frame_buf).unwrap())
     }
 
+    fn process_frames<T, F>(
+        ctx: &mut ffmpeg_next::format::context::Input,
+        decoder: &mut VideoDecoder,
+        stream_idx: usize,
+        count: usize,
+        skip_by: Option<usize>,
+        map_frame_fn: F,
+    ) -> Vec<T>
+    where
+        F: Fn(&ffmpeg_next::frame::Video, &ffmpeg_next::format::stream::Stream) -> T,
+    {
+        let skip_by = skip_by.unwrap_or(1);
+        let mut output: Vec<T> = Vec::new();
+        let mut frame =
+            ffmpeg_next::frame::Video::new(decoder.format(), decoder.width(), decoder.height());
+        let mut frame_rgb =
+            ffmpeg_next::frame::Video::new(Pixel::RGB24, decoder.width(), decoder.height());
+
+        ctx.packets()
+            .filter(|(s, _)| s.index() == stream_idx)
+            .take(count)
+            .enumerate()
+            .map(|(i, (s, mut p))| {
+                if i % skip_by != 0 {
+                    p.set_flags(ffmpeg_next::codec::packet::Flags::DISCARD);
+                }
+                (s, p)
+            })
+            .for_each(|(s, p)| {
+                decoder.send_packet(&p).unwrap();
+                while decoder.receive_frame(&mut frame).is_ok() {
+                    decoder.convert_frame(&frame, &mut frame_rgb).unwrap();
+                    frame_rgb.set_pts(frame.pts());
+                    output.push(map_frame_fn(&frame_rgb, &s));
+                }
+            });
+
+        output
+    }
+
     fn compare(&mut self, count: usize) -> anyhow::Result<()> {
         let (src_stream, dst_stream) = (self.src_stream(), self.dst_stream());
         let src_stream_idx = src_stream.index();
@@ -223,49 +266,36 @@ impl VideoComparator {
         let mut dst_decoder = self.dst_decoder()?;
         src_decoder.set_converter(Pixel::RGB24)?;
         dst_decoder.set_converter(Pixel::RGB24)?;
-        let mut src_frame = ffmpeg_next::frame::Video::new(
-            src_decoder.format(),
-            src_decoder.width(),
-            src_decoder.height(),
-        );
-        let mut src_frame_rgb =
-            ffmpeg_next::frame::Video::new(Pixel::RGB24, src_decoder.width(), src_decoder.height());
-        let mut dst_frame = ffmpeg_next::frame::Video::new(
-            dst_decoder.format(),
-            dst_decoder.width(),
-            dst_decoder.height(),
-        );
-        let mut dst_frame_rgb =
-            ffmpeg_next::frame::Video::new(Pixel::RGB24, dst_decoder.width(), dst_decoder.height());
-        let mut src_frame_hash_map = HashMap::new();
 
         Self::seek_to_timestamp(&mut self.src_ctx, src_stream_idx, Duration::from_secs(208))?;
         Self::seek_to_timestamp(&mut self.dst_ctx, dst_stream_idx, Duration::from_secs(174))?;
 
-        for _ in 0..count {
-            let t1 = Self::find_next_frame(
-                &mut self.src_ctx,
-                &mut src_decoder,
-                src_stream_idx,
-                &mut src_frame,
-                100,
-            )?;
-            let t2 = Self::find_next_frame(
-                &mut self.dst_ctx,
-                &mut dst_decoder,
-                dst_stream_idx,
-                &mut dst_frame,
-                100,
-            )?;
-            dbg!(t1, t2);
+        let src_hashes = Self::process_frames(
+            &mut self.src_ctx,
+            &mut src_decoder,
+            src_stream_idx,
+            count,
+            None,
+            |f, s| {
+                let time_base = f64::from(s.time_base());
+                let ts = Duration::from_secs((f.pts().unwrap() as f64 * time_base) as u64);
+                (Self::hash_frame(f), ts)
+            },
+        );
+        let dst_hashes = Self::process_frames(
+            &mut self.dst_ctx,
+            &mut dst_decoder,
+            dst_stream_idx,
+            count,
+            None,
+            |f, s| {
+                let time_base = f64::from(s.time_base());
+                let ts = Duration::from_millis((f.pts().unwrap() as f64 * time_base * 1000.0) as u64);
+                (Self::hash_frame(f), ts)
+            }
+        );
 
-            src_decoder.convert_frame(&src_frame, &mut src_frame_rgb)?;
-            dst_decoder.convert_frame(&dst_frame, &mut dst_frame_rgb)?;
-
-            src_frame_hash_map.insert(Self::hash_frame(&src_frame_rgb), t1);
-
-            dbg!(Self::compare_two_frames(&src_frame_rgb, &dst_frame_rgb));
-        }
+        dbg!(src_hashes, dst_hashes);
 
         Ok(())
     }
@@ -274,5 +304,5 @@ impl VideoComparator {
 fn main() {
     ffmpeg_next::init().unwrap();
     let mut comparator = VideoComparator::new(S1_PATH, S2_PATH).unwrap();
-    comparator.compare(100).unwrap();
+    comparator.compare(10).unwrap();
 }
