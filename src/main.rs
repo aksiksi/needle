@@ -1,10 +1,17 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::time::Duration;
 
 use ffmpeg_next::format::Pixel;
 
 const S1_PATH: &str = "/Users/aksiksi/Movies/ep1.mkv";
 const S2_PATH: &str = "/Users/aksiksi/Movies/ep2.mkv";
+
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("invalid timestamp for seek: requested={requested:?} duration={duration:?}")]
+    InvalidSeekTimestamp { requested: Duration, duration: Duration },
+}
 
 /// Wraps the `ffmpeg` video decoder.
 struct VideoDecoder {
@@ -140,24 +147,38 @@ impl VideoComparator {
         return d1.distance(&d2);
     }
 
-    // Returns the presentation timestamp for this frame, in seconds.
+    // Returns the presentation timestamp for this frame, in milliseconds.
     fn frame_timestamp(
         ctx: &mut ffmpeg_next::format::context::Input,
         stream_idx: usize,
         frame: &ffmpeg_next::frame::Video,
-    ) -> Option<f64> {
+    ) -> Option<Duration> {
         ctx.stream(stream_idx)
             .map(|s| f64::from(s.time_base()))
-            .and_then(|time_base| frame.timestamp().map(|t| t as f64 * time_base))
+            .and_then(|time_base| frame.timestamp().map(|t| t as f64 * time_base * 1000.0))
+            .map(|ts| Duration::from_millis(ts as u64))
     }
 
     fn seek_to_timestamp(
         ctx: &mut ffmpeg_next::format::context::Input,
         stream_idx: usize,
-        timestamp: f64, // in seconds
+        timestamp: Duration,
     ) -> anyhow::Result<()> {
         let time_base: f64 = ctx.stream(stream_idx).unwrap().time_base().into();
-        let timestamp = (timestamp / time_base) as i64;
+        let duration = Duration::from_millis((ctx.duration() as f64 * time_base) as u64);
+
+        // Ensure that the provided timestamp is valid (i.e., doesn't exceed duration of the video).
+        anyhow::ensure!(
+            timestamp < duration,
+            Error::InvalidSeekTimestamp {
+                requested: timestamp,
+                duration,
+            }
+        );
+
+        // Convert timestamp from ms to seconds, then divide by time_base to get the timestamp
+        // in time_base units.
+        let timestamp = (timestamp.as_millis() as f64 / time_base / 1000.0) as i64;
         ctx.seek_to_frame(
             stream_idx as i32,
             timestamp,
@@ -172,7 +193,7 @@ impl VideoComparator {
         stream_idx: usize,
         frame_buf: &mut ffmpeg_next::frame::Video,
         num_frames_to_skip: usize,
-    ) -> anyhow::Result<f64> {
+    ) -> anyhow::Result<Duration> {
         let packet_iter = ctx
             .packets()
             .filter(|(s, _)| s.index() == stream_idx)
@@ -195,8 +216,9 @@ impl VideoComparator {
     }
 
     fn compare(&mut self, count: usize) -> anyhow::Result<()> {
-        let src_stream_idx = self.src_stream().index();
-        let dst_stream_idx = self.dst_stream().index();
+        let (src_stream, dst_stream) = (self.src_stream(), self.dst_stream());
+        let src_stream_idx = src_stream.index();
+        let dst_stream_idx = dst_stream.index();
         let mut src_decoder = self.src_decoder()?;
         let mut dst_decoder = self.dst_decoder()?;
         src_decoder.set_converter(Pixel::RGB24)?;
@@ -217,8 +239,8 @@ impl VideoComparator {
             ffmpeg_next::frame::Video::new(Pixel::RGB24, dst_decoder.width(), dst_decoder.height());
         let mut src_frame_hash_map = HashMap::new();
 
-        Self::seek_to_timestamp(&mut self.src_ctx, src_stream_idx, 208.0)?;
-        Self::seek_to_timestamp(&mut self.dst_ctx, dst_stream_idx, 174.0)?;
+        Self::seek_to_timestamp(&mut self.src_ctx, src_stream_idx, Duration::from_secs(208))?;
+        Self::seek_to_timestamp(&mut self.dst_ctx, dst_stream_idx, Duration::from_secs(174))?;
 
         for _ in 0..count {
             let t1 = Self::find_next_frame(
