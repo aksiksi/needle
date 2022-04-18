@@ -23,12 +23,26 @@ struct VideoDecoder {
 }
 
 impl VideoDecoder {
-    fn from_stream(stream: ffmpeg_next::format::stream::Stream) -> anyhow::Result<Self> {
-        let decoder = ffmpeg_next::codec::context::Context::from_parameters(stream.parameters())?
-            .decoder()
-            .video()?;
+    fn build_threading_config() -> ffmpeg_next::codec::threading::Config {
+        let mut config = ffmpeg_next::codec::threading::Config::default();
+        config.count = num_cpus::get();
+        config.kind = ffmpeg_next::codec::threading::Type::Frame;
+        config
+    }
+
+    fn from_stream(
+        stream: ffmpeg_next::format::stream::Stream,
+        threaded: bool,
+    ) -> anyhow::Result<Self> {
+        let ctx = ffmpeg_next::codec::context::Context::from_parameters(stream.parameters())?;
+        let mut decoder = ctx.decoder();
+
+        if threaded {
+            decoder.set_threading(Self::build_threading_config());
+        }
+
         Ok(Self {
-            decoder,
+            decoder: decoder.video()?,
             converter: None,
         })
     }
@@ -126,11 +140,11 @@ impl VideoComparator {
     }
 
     fn src_decoder(&mut self) -> anyhow::Result<VideoDecoder> {
-        VideoDecoder::from_stream(self.src_stream())
+        VideoDecoder::from_stream(self.src_stream(), false)
     }
 
     fn dst_decoder(&mut self) -> anyhow::Result<VideoDecoder> {
-        VideoDecoder::from_stream(self.dst_stream())
+        VideoDecoder::from_stream(self.dst_stream(), false)
     }
 
     #[inline(always)]
@@ -290,12 +304,13 @@ impl VideoComparator {
             None,
             |f, s| {
                 let time_base = f64::from(s.time_base());
-                let ts = Duration::from_millis((f.pts().unwrap() as f64 * time_base * 1000.0) as u64);
+                let ts =
+                    Duration::from_millis((f.pts().unwrap() as f64 * time_base * 1000.0) as u64);
                 (Self::hash_frame(f), ts)
-            }
+            },
         );
 
-        dbg!(src_hashes, dst_hashes);
+        // dbg!(src_hashes, dst_hashes);
 
         Ok(())
     }
@@ -304,5 +319,5 @@ impl VideoComparator {
 fn main() {
     ffmpeg_next::init().unwrap();
     let mut comparator = VideoComparator::new(S1_PATH, S2_PATH).unwrap();
-    comparator.compare(10).unwrap();
+    comparator.compare(1000).unwrap();
 }

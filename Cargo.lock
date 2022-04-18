@@ -157,6 +157,7 @@ dependencies = [
  "anyhow",
  "blockhash",
  "ffmpeg-next",
+ "num_cpus",
  "thiserror",
 ]
 
