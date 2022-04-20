@@ -204,45 +204,19 @@ impl VideoComparator {
         Ok(())
     }
 
-    fn find_next_frame(
-        ctx: &mut ffmpeg_next::format::context::Input,
-        decoder: &mut VideoDecoder,
-        stream_idx: usize,
-        frame_buf: &mut ffmpeg_next::frame::Video,
-        num_frames_to_skip: usize,
-    ) -> anyhow::Result<Duration> {
-        let packet_iter = ctx
-            .packets()
-            .filter(|(s, _)| s.index() == stream_idx)
-            .map(|(_, p)| p);
-
-        // TODO(aksiksi): Figure out why we get duplicate frames on successive calls
-        // to this method.
-        for (i, mut p) in packet_iter.enumerate() {
-            if i < num_frames_to_skip {
-                // Mark this packet for discard.
-                p.set_flags(ffmpeg_next::codec::packet::Flags::DISCARD);
-            }
-            decoder.send_packet(&p)?;
-            if decoder.receive_frame(frame_buf).is_ok() {
-                break;
-            }
-        }
-
-        Ok(Self::frame_timestamp(ctx, stream_idx, &frame_buf).unwrap())
-    }
-
     fn process_frames<T, F>(
         ctx: &mut ffmpeg_next::format::context::Input,
         decoder: &mut VideoDecoder,
         stream_idx: usize,
-        count: usize,
+        count: Option<usize>,
         skip_by: Option<usize>,
         map_frame_fn: F,
     ) -> Vec<T>
     where
         F: Fn(&ffmpeg_next::frame::Video, &ffmpeg_next::format::stream::Stream) -> T,
     {
+        let _g = tracing::span!(tracing::Level::TRACE, "process_frames", count);
+
         let skip_by = skip_by.unwrap_or(1);
         let mut output: Vec<T> = Vec::new();
         let mut frame =
@@ -252,7 +226,7 @@ impl VideoComparator {
 
         ctx.packets()
             .filter(|(s, _)| s.index() == stream_idx)
-            .take(count)
+            .take(count.unwrap_or(usize::MAX))
             .enumerate()
             .map(|(i, (s, mut p))| {
                 if i % skip_by != 0 {
@@ -284,39 +258,62 @@ impl VideoComparator {
         Self::seek_to_timestamp(&mut self.src_ctx, src_stream_idx, Duration::from_secs(208))?;
         Self::seek_to_timestamp(&mut self.dst_ctx, dst_stream_idx, Duration::from_secs(174))?;
 
-        let src_hashes = Self::process_frames(
-            &mut self.src_ctx,
-            &mut src_decoder,
-            src_stream_idx,
-            count,
-            None,
-            |f, s| {
-                let time_base = f64::from(s.time_base());
-                let ts = Duration::from_secs((f.pts().unwrap() as f64 * time_base) as u64);
-                (Self::hash_frame(f), ts)
-            },
-        );
-        let dst_hashes = Self::process_frames(
-            &mut self.dst_ctx,
-            &mut dst_decoder,
-            dst_stream_idx,
-            count,
-            None,
-            |f, s| {
-                let time_base = f64::from(s.time_base());
-                let ts =
-                    Duration::from_millis((f.pts().unwrap() as f64 * time_base * 1000.0) as u64);
-                (Self::hash_frame(f), ts)
-            },
-        );
+        let mut src_hashes: HashMap<blockhash::Blockhash144, Duration> = HashMap::new();
+        let mut dst_hashes: HashMap<blockhash::Blockhash144, Duration> = HashMap::new();
+        let map_frame_fn = |f: &ffmpeg_next::frame::Video,
+                            s: &ffmpeg_next::format::stream::Stream| {
+            let time_base = f64::from(s.time_base());
+            let ts = Duration::from_millis((f.pts().unwrap() as f64 * time_base * 1000.0) as u64);
+            (Self::hash_frame(f), ts)
+        };
 
-        // dbg!(src_hashes, dst_hashes);
+        loop {
+            // Process one slice of frames for source and destination videos.
+            let src_results = Self::process_frames(
+                &mut self.src_ctx,
+                &mut src_decoder,
+                src_stream_idx,
+                Some(count),
+                Some(5),
+                map_frame_fn,
+            );
+            let src_duration = src_results[src_results.len() - 1].1;
+            tracing::info!(src_duration = ?src_duration);
+
+            let dst_results = Self::process_frames(
+                &mut self.dst_ctx,
+                &mut dst_decoder,
+                dst_stream_idx,
+                Some(count),
+                Some(5),
+                map_frame_fn,
+            );
+            let dst_duration = dst_results[dst_results.len() - 1].1;
+            tracing::info!(dst_duration = ?dst_duration);
+
+            if src_results.len() == 0 || dst_results.len() == 0 {
+                break;
+            }
+
+            src_results.into_iter().for_each(|(h, d)| {
+                src_hashes.insert(h, d);
+            });
+            dst_results.into_iter().for_each(|(h, d)| {
+                dst_hashes.insert(h, d);
+            });
+        }
 
         Ok(())
     }
 }
 
 fn main() {
+    let subscriber = tracing_subscriber::FmtSubscriber::builder()
+        .with_max_level(tracing::Level::TRACE)
+        .finish();
+
+    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
+
     ffmpeg_next::init().unwrap();
     let mut comparator = VideoComparator::new(S1_PATH, S2_PATH).unwrap();
     comparator.compare(1000).unwrap();
