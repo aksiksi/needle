@@ -1,7 +1,8 @@
-use std::collections::HashMap;
+#![allow(unused)]
 use std::path::Path;
 use std::time::Duration;
 
+use blockhash::Blockhash64;
 use ffmpeg_next::format::Pixel;
 
 const S1_PATH: &str = "/Users/aksiksi/Movies/ep1.mkv";
@@ -84,14 +85,14 @@ impl VideoDecoder {
     }
 }
 
-// Wraps an ffmpeg RGB24 video frame to implement [blockhash::Image].
-struct RgbFrameView<'a> {
+// Wraps an ffmpeg GRAY8 video frame to implement [blockhash::Image].
+struct GrayFrameView<'a> {
     width: u32,
     height: u32,
     inner: &'a [u8],
 }
 
-impl<'a> blockhash::Image for RgbFrameView<'a> {
+impl<'a> blockhash::Image for GrayFrameView<'a> {
     #[inline(always)]
     fn dimensions(&self) -> (u32, u32) {
         (self.width, self.height)
@@ -102,8 +103,8 @@ impl<'a> blockhash::Image for RgbFrameView<'a> {
         let (x, y, width) = (x as usize, y as usize, self.width as usize);
         let mut data = [0xFF; 4]; // alpha defaults to 0xFF
         data[0] = self.inner[y * width + x];
-        data[1] = self.inner[y * width + x + 1];
-        data[2] = self.inner[y * width + x + 2];
+        data[1] = data[0];
+        data[2] = data[0];
         data
     }
 }
@@ -115,6 +116,8 @@ struct VideoComparator {
 }
 
 impl VideoComparator {
+    const FRAME_HASH_MATCH_THRESHOLD: u32 = 10;
+
     fn new<P, Q>(src_path: P, dst_path: Q) -> anyhow::Result<Self>
     where
         P: AsRef<Path>,
@@ -148,13 +151,13 @@ impl VideoComparator {
     }
 
     #[inline(always)]
-    fn hash_frame(f: &ffmpeg_next::frame::Video) -> blockhash::Blockhash144 {
-        let frame_view = RgbFrameView {
+    fn hash_frame(f: &ffmpeg_next::frame::Video) -> blockhash::Blockhash64 {
+        let frame_view = GrayFrameView {
             width: f.width(),
             height: f.height(),
             inner: f.data(0),
         };
-        blockhash::blockhash144(&frame_view)
+        blockhash::blockhash64(&frame_view)
     }
 
     #[inline(always)]
@@ -222,7 +225,7 @@ impl VideoComparator {
         let mut frame =
             ffmpeg_next::frame::Video::new(decoder.format(), decoder.width(), decoder.height());
         let mut frame_rgb =
-            ffmpeg_next::frame::Video::new(Pixel::RGB24, decoder.width(), decoder.height());
+            ffmpeg_next::frame::Video::new(Pixel::GRAY8, decoder.width(), decoder.height());
 
         ctx.packets()
             .filter(|(s, _)| s.index() == stream_idx)
@@ -246,65 +249,167 @@ impl VideoComparator {
         output
     }
 
-    fn compare(&mut self, count: usize) -> anyhow::Result<()> {
+    fn find_target_in_stream(
+        ctx: &mut ffmpeg_next::format::context::Input,
+        decoder: &mut VideoDecoder,
+        stream_idx: usize,
+        target_frame_hashes: &[Blockhash64],
+        // Used to correct for differences in sampling rate.
+        skip_by: Option<usize>,
+    ) -> Option<(usize, usize)> {
+        let _g = tracing::span!(tracing::Level::TRACE, "find_target_in_stream");
+
+        let mut matching_clips: Vec<(usize, usize)> = Vec::new();
+        let mut frame_hashes;
+        let map_frame_fn = |f: &ffmpeg_next::frame::Video,
+                            _: &ffmpeg_next::format::stream::Stream| {
+            tracing::info!(pts = f.pts());
+            Self::hash_frame(f)
+        };
+        let mut in_match = false;
+        let (mut start_idx, mut i) = (0, 0isize);
+        let mut num_frames_processed = 0;
+
+        'outer: loop {
+            frame_hashes =
+                Self::process_frames(ctx, decoder, stream_idx, Some(1000), skip_by, map_frame_fn);
+            tracing::info!(num_frames = frame_hashes.len());
+
+            for hash in frame_hashes.iter() {
+                let target_hash = target_frame_hashes[i as usize];
+                let dist = target_hash.distance(hash);
+                let is_similar = dist < Self::FRAME_HASH_MATCH_THRESHOLD;
+                tracing::info!(in_match = in_match, dist = dist, is_similar = is_similar);
+
+                if !in_match && is_similar {
+                    in_match = true;
+                    start_idx = num_frames_processed;
+                } else if in_match && !is_similar {
+                    in_match = false;
+                    matching_clips.push((start_idx, i as usize));
+                    if i == target_frame_hashes.len() as isize - 1 {
+                        break 'outer;
+                    }
+                    i = 0;
+                } else if in_match {
+                    i += 1;
+                }
+
+                num_frames_processed += 1;
+            }
+
+            if frame_hashes.len() == 0 {
+                break;
+            }
+        }
+
+        if matching_clips.len() == 0 {
+            None
+        } else {
+            matching_clips.sort_by(|c1, c2| {
+                let c1_length = c1.1 - c1.0;
+                let c2_length = c2.1 - c2.0;
+                c1_length.cmp(&c2_length)
+            });
+            Some(matching_clips.last().unwrap().to_owned())
+        }
+    }
+
+    // Returns all packets for a given stream.
+    fn get_all_packets(
+        ctx: &mut ffmpeg_next::format::context::Input,
+        stream_idx: usize,
+    ) -> Vec<ffmpeg_next::codec::packet::Packet> {
+        ctx.packets()
+            .filter(|(s, _)| s.index() == stream_idx)
+            .map(|(_, p)| p)
+            .collect()
+    }
+
+    fn compare(&mut self, _count: usize) -> anyhow::Result<()> {
         let (src_stream, dst_stream) = (self.src_stream(), self.dst_stream());
         let src_stream_idx = src_stream.index();
         let dst_stream_idx = dst_stream.index();
         let mut src_decoder = self.src_decoder()?;
         let mut dst_decoder = self.dst_decoder()?;
-        src_decoder.set_converter(Pixel::RGB24)?;
-        dst_decoder.set_converter(Pixel::RGB24)?;
+        src_decoder.set_converter(Pixel::GRAY8)?;
+        dst_decoder.set_converter(Pixel::GRAY8)?;
+
+        let packets = Self::get_all_packets(&mut self.src_ctx, src_stream_idx);
+        tracing::info!(num_packets = packets.len());
 
         Self::seek_to_timestamp(&mut self.src_ctx, src_stream_idx, Duration::from_secs(208))?;
         Self::seek_to_timestamp(&mut self.dst_ctx, dst_stream_idx, Duration::from_secs(174))?;
 
-        let mut src_hashes: HashMap<blockhash::Blockhash144, Duration> = HashMap::new();
-        let mut dst_hashes: HashMap<blockhash::Blockhash144, Duration> = HashMap::new();
-        let map_frame_fn = |f: &ffmpeg_next::frame::Video,
-                            s: &ffmpeg_next::format::stream::Stream| {
-            let time_base = f64::from(s.time_base());
-            let ts = Duration::from_millis((f.pts().unwrap() as f64 * time_base * 1000.0) as u64);
-            (Self::hash_frame(f), ts)
+        let map_frame_fn = |output_prefix: Option<&'static str>| {
+            move |f: &ffmpeg_next::frame::video::Video, s: &ffmpeg_next::format::stream::Stream| {
+                let time_base = f64::from(s.time_base());
+                let pts = f.pts().unwrap();
+                let ts = Duration::from_millis((pts as f64 * time_base * 1000.0) as u64);
+
+                if let Some(output_prefix) = output_prefix {
+                    let path = format!("frames/{}_{}.png", output_prefix, pts);
+                    save_frame(f, &path).unwrap();
+                    tracing::info!(output = output_prefix, pts = pts);
+                }
+
+                (Self::hash_frame(f), ts)
+            }
         };
 
-        loop {
-            // Process one slice of frames for source and destination videos.
-            let src_results = Self::process_frames(
-                &mut self.src_ctx,
-                &mut src_decoder,
-                src_stream_idx,
-                Some(count),
-                Some(5),
-                map_frame_fn,
+        let src_frame_hashes = Self::process_frames(
+            &mut self.src_ctx,
+            &mut src_decoder,
+            src_stream_idx,
+            Some(3000),
+            Some(30),
+            map_frame_fn(Some("src_gray")),
+        );
+        let dst_frame_hashes = Self::process_frames(
+            &mut self.dst_ctx,
+            &mut dst_decoder,
+            dst_stream_idx,
+            Some(3000),
+            Some(30),
+            map_frame_fn(Some("dst_gray")),
+        );
+        for ((h1, t1), (h2, t2)) in src_frame_hashes.iter().zip(dst_frame_hashes.iter()) {
+            tracing::info!(
+                t1 = t1.as_secs(),
+                t2 = t2.as_secs(),
+                similarity = h1.distance(h2)
             );
-            let src_duration = src_results[src_results.len() - 1].1;
-            tracing::info!(src_duration = ?src_duration);
-
-            let dst_results = Self::process_frames(
-                &mut self.dst_ctx,
-                &mut dst_decoder,
-                dst_stream_idx,
-                Some(count),
-                Some(5),
-                map_frame_fn,
-            );
-            let dst_duration = dst_results[dst_results.len() - 1].1;
-            tracing::info!(dst_duration = ?dst_duration);
-
-            if src_results.len() == 0 || dst_results.len() == 0 {
-                break;
-            }
-
-            src_results.into_iter().for_each(|(h, d)| {
-                src_hashes.insert(h, d);
-            });
-            dst_results.into_iter().for_each(|(h, d)| {
-                dst_hashes.insert(h, d);
-            });
         }
+
+        // let src_frame_hashes: Vec<Blockhash144> =
+        //     src_frame_hashes.into_iter().map(|(h, _)| h).collect();
+        // let m = Self::find_target_in_stream(
+        //     &mut self.dst_ctx,
+        //     &mut dst_decoder,
+        //     dst_stream_idx,
+        //     &src_frame_hashes,
+        //     Some(5),
+        // );
+        // tracing::info!(m = ?m);
 
         Ok(())
     }
+}
+
+fn save_frame<P: AsRef<Path>>(
+    frame: &ffmpeg_next::frame::video::Video,
+    path: P,
+) -> std::result::Result<(), std::io::Error> {
+    let data = frame.data(0);
+    let img_buf: image::ImageBuffer<image::Luma<u8>, &[u8]> =
+        image::ImageBuffer::from_raw(frame.width(), frame.height(), data).unwrap();
+    img_buf.save(path).unwrap();
+    Ok(())
+}
+
+fn load_frame<P: AsRef<Path>>(path: P) -> anyhow::Result<Vec<u8>> {
+    let img_buf = image::io::Reader::open(path)?.decode()?;
+    Ok(img_buf.to_luma8().to_vec())
 }
 
 fn main() {

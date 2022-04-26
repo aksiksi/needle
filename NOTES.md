@@ -39,8 +39,26 @@ In the case above, we need to return `A, B` for each of `f` and `g`.
 To determine if two frames are *similar*:
 
 1. Compute each frame's perceptual hash (we are using Blockhash-144). This is ~O(N), where N is the number of pixels in a frame.
-2. Compute the Hamming distance between the hashes. O(N) in number of bits (144 in this case).
-3. If the distance is less than 10 (for 144 bit hashes), we can say that the two frames are similar.
+2. Compute the Hamming distance between the hashes. This is ~O(N) in number of bits (144 in this case).
+3. If the distance is less than 10 (for 144 bit hashes), we can say that two frames are similar.
+
+## Finding a Known Sequence in a Video
+
+This is a subset of the main problem. Given a sequence of `N` target frame hashes, determine if the sequence exists in a video consisting of `M` frames.
+
+```
+video:         [ v_1 | v_2 | ... | v_M ]
+target hashes: [ h_1 | h_2 | ... | h_N ]
+```
+
+### Idea 1
+
+1. Iterate over the video in chunks of `X` frames.
+2. For each frame in `X`, check if the hash is similar to the first hash in the target (`h_1`).
+3. If it is, switch into match mode:
+    1. Count the number of sequential matching frames.
+    2. At the first mismatch, bail out and record the start and end positions.
+4. If it isn't, move to the next frame in `X`.
 
 ## Frame Processing
 
