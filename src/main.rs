@@ -150,6 +150,7 @@ impl VideoComparator {
         VideoDecoder::from_stream(self.dst_stream(), false)
     }
 
+    // Returns the blockhash of the given frame.
     #[inline(always)]
     fn hash_frame(f: &ffmpeg_next::frame::Video) -> blockhash::Blockhash64 {
         let frame_view = GrayFrameView {
@@ -160,6 +161,8 @@ impl VideoComparator {
         blockhash::blockhash64(&frame_view)
     }
 
+    // Compares two frames by computing their blockhashes and returns the
+    // difference (Hamming distance).
     #[inline(always)]
     fn compare_two_frames(f1: &ffmpeg_next::frame::Video, f2: &ffmpeg_next::frame::Video) -> u32 {
         let d1 = Self::hash_frame(f1);
@@ -167,7 +170,7 @@ impl VideoComparator {
         return d1.distance(&d2);
     }
 
-    // Returns the presentation timestamp for this frame, in milliseconds.
+    // Returns the actual presentation timestamp for this frame (i.e., timebase agnostic).
     fn frame_timestamp(
         ctx: &mut ffmpeg_next::format::context::Input,
         stream_idx: usize,
@@ -179,6 +182,8 @@ impl VideoComparator {
             .map(|ts| Duration::from_millis(ts as u64))
     }
 
+    // Seeks the video stream to the given timestamp. Under the hood, this uses
+    // the standard ffmpeg/libav function, `av_seek_frame`.
     fn seek_to_timestamp(
         ctx: &mut ffmpeg_next::format::context::Input,
         stream_idx: usize,
@@ -207,6 +212,12 @@ impl VideoComparator {
         Ok(())
     }
 
+    // Given a video stream, applies the function `F` to each frame in the stream and
+    // collects the results into a `Vec`.
+    //
+    // `count` can be used to limit the number of frames to process. To sample fewer frames,
+    // use the `skip_by` option. For example, if `skip_by` is set to 5, one in every 5 frames
+    // will be processed.
     fn process_frames<T, F>(
         ctx: &mut ffmpeg_next::format::context::Input,
         decoder: &mut VideoDecoder,
@@ -247,72 +258,6 @@ impl VideoComparator {
             });
 
         output
-    }
-
-    fn find_target_in_stream(
-        ctx: &mut ffmpeg_next::format::context::Input,
-        decoder: &mut VideoDecoder,
-        stream_idx: usize,
-        target_frame_hashes: &[Blockhash64],
-        // Used to correct for differences in sampling rate.
-        skip_by: Option<usize>,
-    ) -> Option<(usize, usize)> {
-        let _g = tracing::span!(tracing::Level::TRACE, "find_target_in_stream");
-
-        let mut matching_clips: Vec<(usize, usize)> = Vec::new();
-        let mut frame_hashes;
-        let map_frame_fn = |f: &ffmpeg_next::frame::Video,
-                            _: &ffmpeg_next::format::stream::Stream| {
-            tracing::info!(pts = f.pts());
-            Self::hash_frame(f)
-        };
-        let mut in_match = false;
-        let (mut start_idx, mut i) = (0, 0isize);
-        let mut num_frames_processed = 0;
-
-        'outer: loop {
-            frame_hashes =
-                Self::process_frames(ctx, decoder, stream_idx, Some(1000), skip_by, map_frame_fn);
-            tracing::info!(num_frames = frame_hashes.len());
-
-            for hash in frame_hashes.iter() {
-                let target_hash = target_frame_hashes[i as usize];
-                let dist = target_hash.distance(hash);
-                let is_similar = dist < Self::FRAME_HASH_MATCH_THRESHOLD;
-                tracing::info!(in_match = in_match, dist = dist, is_similar = is_similar);
-
-                if !in_match && is_similar {
-                    in_match = true;
-                    start_idx = num_frames_processed;
-                } else if in_match && !is_similar {
-                    in_match = false;
-                    matching_clips.push((start_idx, i as usize));
-                    if i == target_frame_hashes.len() as isize - 1 {
-                        break 'outer;
-                    }
-                    i = 0;
-                } else if in_match {
-                    i += 1;
-                }
-
-                num_frames_processed += 1;
-            }
-
-            if frame_hashes.len() == 0 {
-                break;
-            }
-        }
-
-        if matching_clips.len() == 0 {
-            None
-        } else {
-            matching_clips.sort_by(|c1, c2| {
-                let c1_length = c1.1 - c1.0;
-                let c2_length = c2.1 - c2.0;
-                c1_length.cmp(&c2_length)
-            });
-            Some(matching_clips.last().unwrap().to_owned())
-        }
     }
 
     // Returns all packets for a given stream.
@@ -381,21 +326,12 @@ impl VideoComparator {
             );
         }
 
-        // let src_frame_hashes: Vec<Blockhash144> =
-        //     src_frame_hashes.into_iter().map(|(h, _)| h).collect();
-        // let m = Self::find_target_in_stream(
-        //     &mut self.dst_ctx,
-        //     &mut dst_decoder,
-        //     dst_stream_idx,
-        //     &src_frame_hashes,
-        //     Some(5),
-        // );
-        // tracing::info!(m = ?m);
-
         Ok(())
     }
 }
 
+// Save the given frame to the path. The format of the image is determined
+// using the file extension.
 fn save_frame<P: AsRef<Path>>(
     frame: &ffmpeg_next::frame::video::Video,
     path: P,
@@ -407,6 +343,7 @@ fn save_frame<P: AsRef<Path>>(
     Ok(())
 }
 
+// Load a frame into a `Vec` of bytes.
 fn load_frame<P: AsRef<Path>>(path: P) -> anyhow::Result<Vec<u8>> {
     let img_buf = image::io::Reader::open(path)?.decode()?;
     Ok(img_buf.to_luma8().to_vec())
