@@ -32,8 +32,8 @@ fn main() {
     #[cfg(feature = "ffmpeg-next")]
     ffmpeg_next::init().unwrap();
 
-    let mut video_comparator = video::VideoComparator::new(S1_PATH, S2_PATH).unwrap();
-    video_comparator.compare(1000).unwrap();
+    // let mut video_comparator = video::VideoComparator::new(S1_PATH, S2_PATH).unwrap();
+    // video_comparator.compare(1000).unwrap();
 
     let mut audio_comparator = audio::AudioComparator::new(S1_PATH, S2_PATH).unwrap();
     audio_comparator.compare(1000).unwrap();

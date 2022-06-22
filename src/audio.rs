@@ -21,7 +21,6 @@ impl AudioDecoder {
 
     fn from_stream(
         stream: ffmpeg_next::format::stream::Stream,
-        output_format: ffmpeg_next::format::Sample,
         threaded: bool,
     ) -> anyhow::Result<Self> {
         let ctx = ffmpeg_next::codec::context::Context::from_parameters(stream.parameters())?;
@@ -31,12 +30,9 @@ impl AudioDecoder {
             decoder.set_threading(Self::build_threading_config());
         }
 
-        let mut decoder = decoder.audio()?;
-        decoder.request_format(output_format);
+        let decoder = decoder.audio()?;
 
-        Ok(Self {
-            decoder,
-        })
+        Ok(Self { decoder })
     }
 
     fn channels(&self) -> u16 {
@@ -45,6 +41,10 @@ impl AudioDecoder {
 
     fn bit_rate(&self) -> usize {
         self.decoder.bit_rate()
+    }
+
+    fn sample_rate(&self) -> u32 {
+        self.decoder.rate()
     }
 
     fn format(&self) -> ffmpeg_next::format::Sample {
@@ -64,34 +64,12 @@ impl AudioDecoder {
     }
 }
 
-// Wraps an ffmpeg GRAY8 video frame to implement [blockhash::Image].
-struct GrayFrameView<'a> {
-    width: u32,
-    height: u32,
-    inner: &'a [u8],
-}
-
-impl<'a> blockhash::Image for GrayFrameView<'a> {
-    #[inline(always)]
-    fn dimensions(&self) -> (u32, u32) {
-        (self.width, self.height)
-    }
-
-    #[inline(always)]
-    fn get_pixel(&self, x: u32, y: u32) -> [u8; 4] {
-        let (x, y, width) = (x as usize, y as usize, self.width as usize);
-        let mut data = [0xFF; 4]; // alpha defaults to 0xFF
-        data[0] = self.inner[y * width + x];
-        data[1] = data[0];
-        data[2] = data[0];
-        data
-    }
-}
-
 /// Compares two audio streams.
 pub struct AudioComparator {
     src_ctx: ffmpeg_next::format::context::Input,
     dst_ctx: ffmpeg_next::format::context::Input,
+    src_hash_ctx: chromaprint::Context,
+    dst_hash_ctx: chromaprint::Context,
 }
 
 impl AudioComparator {
@@ -104,7 +82,14 @@ impl AudioComparator {
     {
         let src_ctx = ffmpeg_next::format::input(&src_path)?;
         let dst_ctx = ffmpeg_next::format::input(&dst_path)?;
-        Ok(Self { src_ctx, dst_ctx })
+        let src_hash_ctx = chromaprint::Context::default();
+        let dst_hash_ctx = chromaprint::Context::default();
+        Ok(Self {
+            src_ctx,
+            dst_ctx,
+            src_hash_ctx,
+            dst_hash_ctx,
+        })
     }
 
     fn src_stream(&self) -> ffmpeg_next::format::stream::Stream {
@@ -122,19 +107,22 @@ impl AudioComparator {
     }
 
     fn src_decoder(&mut self) -> anyhow::Result<AudioDecoder> {
-        AudioDecoder::from_stream(self.src_stream(), ffmpeg_next::format::Sample::I16(ffmpeg_next::format::sample::Type::Packed), false)
+        AudioDecoder::from_stream(self.src_stream(), false)
     }
 
     fn dst_decoder(&mut self) -> anyhow::Result<AudioDecoder> {
-        AudioDecoder::from_stream(self.dst_stream(), ffmpeg_next::format::Sample::I16(ffmpeg_next::format::sample::Type::Packed), false)
+        AudioDecoder::from_stream(self.dst_stream(), false)
     }
 
     // Returns the blockhash of the given frame.
     #[inline(always)]
     fn hash_frame(f: &ffmpeg_next::frame::Audio) -> anyhow::Result<u32> {
-        assert!(f.format() == ffmpeg_next::format::Sample::I16(ffmpeg_next::format::sample::Type::Packed));
+        assert!(
+            f.format()
+                == ffmpeg_next::format::Sample::I16(ffmpeg_next::format::sample::Type::Packed)
+        );
         let mut ctx = chromaprint::Context::default();
-        ctx.start(f.rate(), (f.channels() as usize).into());
+        ctx.start(f.rate(), f.channels());
         ctx.feed(f.plane(0))?;
         ctx.finish()?;
         Ok(ctx.get_fingerprint_hash()?.get())
@@ -143,10 +131,13 @@ impl AudioComparator {
     // Compares two frames by computing their blockhashes and returns the
     // difference (Hamming distance).
     #[inline(always)]
-    fn compare_two_frames(f1: &ffmpeg_next::frame::Audio, f2: &ffmpeg_next::frame::Audio) -> anyhow::Result<u32> {
+    fn compare_two_frames(
+        f1: &ffmpeg_next::frame::Audio,
+        f2: &ffmpeg_next::frame::Audio,
+    ) -> anyhow::Result<u32> {
         let d1 = Self::hash_frame(f1)?;
         let d2 = Self::hash_frame(f2)?;
-        Ok(u32::count_zeros(d1 ^ d2))
+        Ok(u32::count_ones(d1 ^ d2))
     }
 
     // Returns the actual presentation timestamp for this frame (i.e., timebase agnostic).
@@ -191,28 +182,41 @@ impl AudioComparator {
         Ok(())
     }
 
-    // Given a video stream, applies the function `F` to each frame in the stream and
-    // collects the results into a `Vec`.
+    // Given an audio stream, computes the fingerprint for raw audio for the given duration.
     //
     // `count` can be used to limit the number of frames to process. To sample fewer frames,
     // use the `skip_by` option. For example, if `skip_by` is set to 5, one in every 5 frames
     // will be processed.
-    fn process_frames<T, F>(
+    fn process_frames(
         ctx: &mut ffmpeg_next::format::context::Input,
         decoder: &mut AudioDecoder,
         stream_idx: usize,
+        hash_ctx: &mut chromaprint::Context,
+        hash_duration: Option<Duration>,
         count: Option<usize>,
         skip_by: Option<usize>,
-        map_frame_fn: F,
-    ) -> Vec<T>
-    where
-        F: Fn(&ffmpeg_next::frame::Audio, &ffmpeg_next::format::stream::Stream) -> T,
-    {
+    ) -> Vec<(u32, Duration)> {
         let _g = tracing::span!(tracing::Level::TRACE, "process_frames", count);
 
         let skip_by = skip_by.unwrap_or(1);
-        let mut output: Vec<T> = Vec::new();
+        let mut output = Vec::new();
         let mut frame = ffmpeg_next::frame::Audio::empty();
+        let mut resampled = ffmpeg_next::frame::Audio::empty();
+
+        let hash_duration = hash_duration.unwrap_or(Duration::from_secs(1));
+        let mut last_hash_duration = None;
+        hash_ctx
+            .start(decoder.sample_rate(), 2)
+            .unwrap();
+
+        let mut resampler = decoder
+            .decoder
+            .resampler(
+                ffmpeg_next::format::Sample::I16(ffmpeg_next::format::sample::Type::Packed),
+                ffmpeg_next::ChannelLayout::STEREO,
+                decoder.sample_rate(),
+            )
+            .unwrap();
 
         ctx.packets()
             .filter(|(s, _)| s.index() == stream_idx)
@@ -222,14 +226,41 @@ impl AudioComparator {
                 if i % skip_by != 0 {
                     p.set_flags(ffmpeg_next::codec::packet::Flags::DISCARD);
                 }
-                (s, p)
+                let time_base = f64::from(s.time_base());
+                let pts = p.pts().unwrap();
+                let ts = Duration::from_millis((pts as f64 * time_base * 1000.0) as u64);
+
+                (s, p, ts)
             })
-            .for_each(|(s, p)| {
+            .for_each(|(s, p, ts)| {
+                if last_hash_duration.is_none() {
+                    last_hash_duration = Some(ts);
+                }
+
                 decoder.send_packet(&p).unwrap();
                 while decoder.receive_frame(&mut frame).is_ok() {
-                    output.push(map_frame_fn(&frame, &s));
+                    // Resample frame to S16 stereo.
+                    resampler.run(&frame, &mut resampled).unwrap();
+
+                    hash_ctx.feed(resampled.plane(0)).unwrap();
+                    let last = last_hash_duration.unwrap();
+
+                    // If the duration has passed, generate a fingerprint.
+                    if ts >= last && (ts - last) >= hash_duration {
+                        hash_ctx.finish().unwrap();
+                        let hash = hash_ctx.get_fingerprint_hash().unwrap().get();
+                        output.push((hash, ts));
+                        hash_ctx.clear_fingerprint().unwrap();
+                        hash_ctx
+                            .start(resampled.rate(), 2)
+                            .unwrap();
+                        last_hash_duration = Some(ts);
+                    }
                 }
             });
+
+        // We're always in start state.
+        hash_ctx.finish().unwrap();
 
         output
     }
@@ -258,43 +289,31 @@ impl AudioComparator {
         Self::seek_to_timestamp(&mut self.src_ctx, src_stream_idx, Duration::from_secs(208))?;
         Self::seek_to_timestamp(&mut self.dst_ctx, dst_stream_idx, Duration::from_secs(174))?;
 
-        let map_frame_fn = |output_prefix: Option<&'static str>| {
-            move |f: &ffmpeg_next::frame::audio::Audio, s: &ffmpeg_next::format::stream::Stream| {
-                let time_base = f64::from(s.time_base());
-                let pts = f.pts().unwrap();
-                let ts = Duration::from_millis((pts as f64 * time_base * 1000.0) as u64);
-
-                if let Some(output_prefix) = output_prefix {
-                    // let path = format!("frames/{}_{}.png", output_prefix, pts);
-                    // save_frame(f, &path).unwrap();
-                    tracing::info!(output = output_prefix, pts = pts);
-                }
-
-                (Self::hash_frame(f).unwrap(), ts)
-            }
-        };
-
         let src_frame_hashes = Self::process_frames(
             &mut self.src_ctx,
             &mut src_decoder,
             src_stream_idx,
-            Some(1000),
+            &mut self.src_hash_ctx,
+            Some(Duration::from_millis(1000)),
+            None,
             Some(5),
-            map_frame_fn(Some("src_gray")),
         );
         let dst_frame_hashes = Self::process_frames(
             &mut self.dst_ctx,
             &mut dst_decoder,
             dst_stream_idx,
-            Some(1000),
+            &mut self.dst_hash_ctx,
+            Some(Duration::from_millis(1000)),
+            None,
             Some(5),
-            map_frame_fn(Some("dst_gray")),
         );
         for ((h1, t1), (h2, t2)) in src_frame_hashes.iter().zip(dst_frame_hashes.iter().skip(1)) {
             tracing::info!(
                 t1 = t1.as_millis() as u64,
                 t2 = t2.as_millis() as u64,
-                similarity = u32::count_zeros(h1 ^ h2),
+                h1 = h1,
+                h2 = h2,
+                similarity = u32::count_ones(h1 ^ h2),
             );
         }
 
