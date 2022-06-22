@@ -4,15 +4,17 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-ffmpeg-next = { git = "https://github.com/aksiksi/rust-ffmpeg", optional = true }
 anyhow = "1"
-blockhash = "0.4.0"
 thiserror = "1.0.30"
 num_cpus = "1.13.1"
 tracing = "0.1.34"
 tracing-subscriber = "0.2.0"
-image = "0.24.1"
+ffmpeg-next = { git = "https://github.com/aksiksi/rust-ffmpeg", optional = true }
+blockhash = { version = "0.4.0", optional = true }
+image = { version = "0.24.1", optional = true }
+chromaprint = { path = "../chromaprint", optional = true }
 
 [features]
-default = ["ffmpeg"]
-ffmpeg = ["ffmpeg-next"]
+default = ["audio", "video"]
+audio = ["chromaprint", "ffmpeg-next"]
+video = ["blockhash", "ffmpeg-next", "image"]
