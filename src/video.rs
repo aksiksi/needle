@@ -1,8 +1,9 @@
+extern crate blockhash;
+extern crate ffmpeg_next;
+extern crate image;
+
 use std::path::Path;
 use std::time::Duration;
-
-use blockhash::Blockhash144;
-use ffmpeg_next::format::Pixel;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -44,7 +45,7 @@ impl VideoDecoder {
         })
     }
 
-    fn format(&self) -> Pixel {
+    fn format(&self) -> ffmpeg_next::format::Pixel {
         self.decoder.format()
     }
 
@@ -60,7 +61,7 @@ impl VideoDecoder {
         Ok(self.decoder.send_packet(packet)?)
     }
 
-    fn set_converter(&mut self, format: Pixel) -> anyhow::Result<()> {
+    fn set_converter(&mut self, format: ffmpeg_next::format::Pixel) -> anyhow::Result<()> {
         self.converter = Some(self.decoder.converter(format)?);
         Ok(())
     }
@@ -231,8 +232,11 @@ impl VideoComparator {
         let mut output: Vec<T> = Vec::new();
         let mut frame =
             ffmpeg_next::frame::Video::new(decoder.format(), decoder.width(), decoder.height());
-        let mut frame_rgb =
-            ffmpeg_next::frame::Video::new(Pixel::GRAY8, decoder.width(), decoder.height());
+        let mut frame_gray = ffmpeg_next::frame::Video::new(
+            ffmpeg_next::format::Pixel::GRAY8,
+            decoder.width(),
+            decoder.height(),
+        );
 
         ctx.packets()
             .filter(|(s, _)| s.index() == stream_idx)
@@ -247,9 +251,9 @@ impl VideoComparator {
             .for_each(|(s, p)| {
                 decoder.send_packet(&p).unwrap();
                 while decoder.receive_frame(&mut frame).is_ok() {
-                    decoder.convert_frame(&frame, &mut frame_rgb).unwrap();
-                    frame_rgb.set_pts(frame.pts());
-                    output.push(map_frame_fn(&frame_rgb, &s));
+                    decoder.convert_frame(&frame, &mut frame_gray).unwrap();
+                    frame_gray.set_pts(frame.pts());
+                    output.push(map_frame_fn(&frame_gray, &s));
                 }
             });
 
@@ -273,8 +277,8 @@ impl VideoComparator {
         let dst_stream_idx = dst_stream.index();
         let mut src_decoder = self.src_decoder()?;
         let mut dst_decoder = self.dst_decoder()?;
-        src_decoder.set_converter(Pixel::GRAY8)?;
-        dst_decoder.set_converter(Pixel::GRAY8)?;
+        src_decoder.set_converter(ffmpeg_next::format::Pixel::GRAY8)?;
+        dst_decoder.set_converter(ffmpeg_next::format::Pixel::GRAY8)?;
 
         let packets = Self::get_all_packets(&mut self.src_ctx, src_stream_idx);
         tracing::info!(num_packets = packets.len());
