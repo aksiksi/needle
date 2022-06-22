@@ -2,7 +2,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use blockhash::Blockhash64;
+use blockhash::Blockhash144;
 use ffmpeg_next::format::Pixel;
 
 const S1_PATH: &str = "/Users/aksiksi/Movies/ep1.mkv";
@@ -152,13 +152,13 @@ impl VideoComparator {
 
     // Returns the blockhash of the given frame.
     #[inline(always)]
-    fn hash_frame(f: &ffmpeg_next::frame::Video) -> blockhash::Blockhash64 {
+    fn hash_frame(f: &ffmpeg_next::frame::Video) -> blockhash::Blockhash144 {
         let frame_view = GrayFrameView {
             width: f.width(),
             height: f.height(),
             inner: f.data(0),
         };
-        blockhash::blockhash64(&frame_view)
+        blockhash::blockhash144(&frame_view)
     }
 
     // Compares two frames by computing their blockhashes and returns the
@@ -306,22 +306,22 @@ impl VideoComparator {
             &mut self.src_ctx,
             &mut src_decoder,
             src_stream_idx,
-            Some(3000),
-            Some(30),
+            Some(1000),
+            Some(5),
             map_frame_fn(Some("src_gray")),
         );
         let dst_frame_hashes = Self::process_frames(
             &mut self.dst_ctx,
             &mut dst_decoder,
             dst_stream_idx,
-            Some(3000),
-            Some(30),
+            Some(1000),
+            Some(5),
             map_frame_fn(Some("dst_gray")),
         );
-        for ((h1, t1), (h2, t2)) in src_frame_hashes.iter().zip(dst_frame_hashes.iter()) {
+        for ((h1, t1), (h2, t2)) in src_frame_hashes.iter().zip(dst_frame_hashes.iter().skip(1)) {
             tracing::info!(
-                t1 = t1.as_secs(),
-                t2 = t2.as_secs(),
+                t1 = t1.as_millis() as u64,
+                t2 = t2.as_millis() as u64,
                 similarity = h1.distance(h2)
             );
         }

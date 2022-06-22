@@ -4,12 +4,15 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-ffmpeg-next = { git = "https://github.com/aksiksi/rust-ffmpeg" }
+ffmpeg-next = { git = "https://github.com/aksiksi/rust-ffmpeg", optional = true }
 anyhow = "1"
 blockhash = "0.4.0"
 thiserror = "1.0.30"
 num_cpus = "1.13.1"
 tracing = "0.1.34"
 tracing-subscriber = "0.2.0"
-rayon = "1.5.2"
 image = "0.24.1"
+
+[features]
+default = ["ffmpeg"]
+ffmpeg = ["ffmpeg-next"]

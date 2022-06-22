@@ -493,7 +493,6 @@ dependencies = [
  "ffmpeg-next",
  "image",
  "num_cpus",
- "rayon",
  "thiserror",
  "tracing",
  "tracing-subscriber",
