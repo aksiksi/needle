@@ -268,14 +268,8 @@ impl AudioComparator {
                 let last = last_fingerprint_ts.unwrap();
                 if ts >= last && (ts - last) >= hash_duration {
                     hash_ctx.finish().unwrap();
-                    // TODO(aksiksi): fix unsoundness in chromaprint library
-                    //
-                    // let raw_fingerprint = hash_ctx.get_fingerprint_raw().unwrap().get();
-                    // dbg!(raw_fingerprint, raw_fingerprint.as_ptr(), unsafe {
-                    //     *raw_fingerprint.as_ptr()
-                    // });
-                    // let hash = simhash32(raw_fingerprint);
-                    let hash = hash_ctx.get_fingerprint_hash().unwrap().get();
+                    let raw_fingerprint = hash_ctx.get_fingerprint_raw().unwrap();
+                    let hash = simhash32(raw_fingerprint.get());
                     output.push((hash, ts));
                     hash_ctx.start(sample_rate, 2).unwrap();
                     last_fingerprint_ts = Some(ts);
@@ -321,7 +315,7 @@ impl AudioComparator {
             Some(Duration::from_secs(3)),
             None,
             // Some(48000),
-            Some(Duration::from_secs(10)),
+            Some(Duration::from_secs(120)),
         );
         let dst_frame_hashes = Self::process_frames(
             &mut self.dst_ctx,
@@ -331,7 +325,7 @@ impl AudioComparator {
             Some(Duration::from_secs(3)),
             None,
             // Some(48000),
-            Some(Duration::from_secs(10)),
+            Some(Duration::from_secs(120)),
         );
         for ((h1, t1), (h2, t2)) in src_frame_hashes.iter().zip(dst_frame_hashes.iter()) {
             tracing::info!(
