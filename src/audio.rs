@@ -1,6 +1,7 @@
 extern crate chromaprint;
 extern crate ffmpeg_next;
 
+use std::io::Write;
 use std::path::Path;
 use std::time::Duration;
 
@@ -184,9 +185,7 @@ impl AudioComparator {
 
     // Given an audio stream, computes the fingerprint for raw audio for the given duration.
     //
-    // `count` can be used to limit the number of frames to process. To sample fewer frames,
-    // use the `skip_by` option. For example, if `skip_by` is set to 5, one in every 5 frames
-    // will be processed.
+    // `count` can be used to limit the number of frames to process.
     fn process_frames(
         ctx: &mut ffmpeg_next::format::context::Input,
         decoder: &mut AudioDecoder,
@@ -194,42 +193,41 @@ impl AudioComparator {
         hash_ctx: &mut chromaprint::Context,
         hash_duration: Option<Duration>,
         count: Option<usize>,
-        skip_by: Option<usize>,
+        sample_rate: Option<u32>,
     ) -> Vec<(u32, Duration)> {
         let _g = tracing::span!(tracing::Level::TRACE, "process_frames", count);
 
-        let skip_by = skip_by.unwrap_or(1);
         let mut output = Vec::new();
         let mut frame = ffmpeg_next::frame::Audio::empty();
-        let mut resampled = ffmpeg_next::frame::Audio::empty();
+        let mut frame_resampled = ffmpeg_next::frame::Audio::empty();
 
-        let hash_duration = hash_duration.unwrap_or(Duration::from_secs(1));
-        let mut last_hash_duration = None;
-        hash_ctx
-            .start(decoder.sample_rate(), 2)
-            .unwrap();
+        // By default, target the sample rate required by Chromaprint so that it does not
+        // resample audio internally.
+        let sample_rate = sample_rate.unwrap_or_else(|| hash_ctx.sample_rate());
+
+        let mut f = std::fs::File::create("sample-11025.raw").unwrap();
 
         let mut resampler = decoder
             .decoder
             .resampler(
                 ffmpeg_next::format::Sample::I16(ffmpeg_next::format::sample::Type::Packed),
                 ffmpeg_next::ChannelLayout::STEREO,
-                decoder.sample_rate(),
+                sample_rate,
             )
             .unwrap();
+
+        let hash_duration = hash_duration.unwrap_or(Duration::from_secs(1));
+        let mut last_hash_duration = None;
+        hash_ctx.start(sample_rate, 2).unwrap();
 
         ctx.packets()
             .filter(|(s, _)| s.index() == stream_idx)
             .take(count.unwrap_or(usize::MAX))
             .enumerate()
             .map(|(i, (s, mut p))| {
-                if i % skip_by != 0 {
-                    p.set_flags(ffmpeg_next::codec::packet::Flags::DISCARD);
-                }
                 let time_base = f64::from(s.time_base());
                 let pts = p.pts().unwrap();
                 let ts = Duration::from_millis((pts as f64 * time_base * 1000.0) as u64);
-
                 (s, p, ts)
             })
             .for_each(|(s, p, ts)| {
@@ -240,26 +238,39 @@ impl AudioComparator {
                 decoder.send_packet(&p).unwrap();
                 while decoder.receive_frame(&mut frame).is_ok() {
                     // Resample frame to S16 stereo.
-                    resampler.run(&frame, &mut resampled).unwrap();
+                    resampler.run(&frame, &mut frame_resampled).unwrap();
 
-                    hash_ctx.feed(resampled.plane(0)).unwrap();
+                    // Obtain a slice of raw bytes in interleaved format.
+                    // We have two channels, so the bytes look like this: c1, c1, c2, c2, c1, c1, c2, c2, ...
+                    //
+                    // Note that `data` is a fixed-size buffer. To get the _actual_ sample bytes, we need to use:
+                    // a) sample count, b) channel count, and c) number of bytes per S16 sample.
+                    let raw_samples = &frame_resampled.data(0)
+                        [..frame_resampled.samples() * frame_resampled.channels() as usize * 2];
+                    // Transmute the raw byte slice into a slice of i16 samples.
+                    // This looks like: c1, c2, c1, c2, ...
+                    let (_, samples, _) = unsafe { raw_samples.align_to() };
+
+                    // Feed the i16 samples to Chromaprint. Since we are using the default
+                    // sampling rate, Chromaprint will not do any resampling internally.
+                    hash_ctx.feed(samples).unwrap();
+
+                    f.write(raw_samples).unwrap();
+
                     let last = last_hash_duration.unwrap();
 
-                    // If the duration has passed, generate a fingerprint.
+                    // If the required duration has passed, generate a fingerprint.
                     if ts >= last && (ts - last) >= hash_duration {
                         hash_ctx.finish().unwrap();
                         let hash = hash_ctx.get_fingerprint_hash().unwrap().get();
                         output.push((hash, ts));
-                        hash_ctx.clear_fingerprint().unwrap();
-                        hash_ctx
-                            .start(resampled.rate(), 2)
-                            .unwrap();
+                        hash_ctx.start(sample_rate, 2).unwrap();
                         last_hash_duration = Some(ts);
                     }
                 }
             });
 
-        // We're always in start state.
+        // We're always in the start state by this point.
         hash_ctx.finish().unwrap();
 
         output
@@ -294,18 +305,20 @@ impl AudioComparator {
             &mut src_decoder,
             src_stream_idx,
             &mut self.src_hash_ctx,
-            Some(Duration::from_millis(1000)),
+            Some(Duration::from_secs(3)),
+            Some(1440),
             None,
-            Some(5),
+            // Some(48000),
         );
         let dst_frame_hashes = Self::process_frames(
             &mut self.dst_ctx,
             &mut dst_decoder,
             dst_stream_idx,
             &mut self.dst_hash_ctx,
-            Some(Duration::from_millis(1000)),
+            Some(Duration::from_secs(3)),
+            Some(1440),
             None,
-            Some(5),
+            // Some(48000),
         );
         for ((h1, t1), (h2, t2)) in src_frame_hashes.iter().zip(dst_frame_hashes.iter().skip(1)) {
             tracing::info!(
