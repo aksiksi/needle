@@ -623,6 +623,7 @@ dependencies = [
  "chromaprint",
  "ffmpeg-next",
  "image",
+ "num-traits",
  "num_cpus",
  "thiserror",
  "tracing",
