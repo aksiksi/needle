@@ -10,6 +10,22 @@
     * This must be less than or equal to the PTS for a given packet
     * DTS is important for packets that contain P-frames and B-frames, as you need to decode other packets before this one can be decoded
 
+## Tricks
+
+### Working with PCM audio
+
+Play raw audio in PCM 16-bit signed format with 2 channels at 11.025 kHz:
+
+```
+ffplay -autoexit -f s16le -channels 2 -sample_rate 11025 sample-11025.raw
+```
+
+Convert the same raw file above to WAV:
+
+```
+ffmpeg -ar 11025 -ac 2 -f s16le -i sample-11025.raw output.wav
+```
+
 # Preceptual Hashing
 
 Intro the basic ideas: http://hackerfactor.com/blog/index.php%3F/archives/432-Looks-Like-It.html

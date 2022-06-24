@@ -1,4 +1,3 @@
-use core::cmp::PartialOrd;
 use core::ops::{AddAssign, BitAnd, BitOrAssign, SubAssign, Shl};
 
 use num_traits::{FromPrimitive, Num, ops::wrapping::WrappingSub};
@@ -23,7 +22,6 @@ where
         + WrappingSub
         + AddAssign
         + SubAssign
-        + PartialOrd
         + BitAnd<Output = T>
         + BitOrAssign
         + Shl<Output = T>
@@ -34,10 +32,9 @@ where
     let mut buf = [0i64; N];
 
     for i in 0..data.len() {
-        let local_hash = data[i];
         for j in 0..N {
             let s = T::one() << T::from_usize(j).unwrap();
-            if (local_hash & s) != T::zero() {
+            if (data[i] & s) != T::zero() {
                 buf[j] += 1;
             } else {
                 buf[j] -= 1;
@@ -48,7 +45,7 @@ where
     let mut hash = T::zero();
     for i in 0..N {
         if buf[i] > 0 {
-            hash |= T::from_usize(1 << i).unwrap();
+            hash |= T::one() << T::from_usize(i).unwrap();
         }
     }
 
@@ -58,6 +55,21 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn test_single() {
+        const DATA: &[u32] = &[3740390231];
+        assert_eq!(simhash32(DATA), 3740390231);
+    }
+
+    #[test]
+    fn test_small() {
+        const DATA: &[u32] = &[
+            3740390231, 3739276119, 3730871573, 3743460629, 3743525173, 3744594229, 3727948087,
+            1584920886, 1593302326, 1593295926, 1584907318,
+        ];
+        assert_eq!(simhash32(DATA), 3732003127);
+    }
 
     #[test]
     fn test_normal() {

@@ -1,10 +1,12 @@
 extern crate chromaprint;
 extern crate ffmpeg_next;
 
-use std::io::Write;
 use std::path::Path;
 use std::time::Duration;
 
+use chromaprint::Fingerprint;
+
+use super::simhash::simhash32;
 use super::Error;
 
 /// Wraps the `ffmpeg` video decoder.
@@ -192,20 +194,19 @@ impl AudioComparator {
         stream_idx: usize,
         hash_ctx: &mut chromaprint::Context,
         hash_duration: Option<Duration>,
-        count: Option<usize>,
         sample_rate: Option<u32>,
+        duration: Option<Duration>,
     ) -> Vec<(u32, Duration)> {
-        let _g = tracing::span!(tracing::Level::TRACE, "process_frames", count);
+        let _g = tracing::span!(tracing::Level::TRACE, "process_frames");
 
         let mut output = Vec::new();
         let mut frame = ffmpeg_next::frame::Audio::empty();
         let mut frame_resampled = ffmpeg_next::frame::Audio::empty();
+        let duration = duration.unwrap_or(Duration::from_secs(u64::MAX));
 
         // By default, target the sample rate required by Chromaprint so that it does not
         // resample audio internally.
         let sample_rate = sample_rate.unwrap_or_else(|| hash_ctx.sample_rate());
-
-        let mut f = std::fs::File::create("sample-11025.raw").unwrap();
 
         let mut resampler = decoder
             .decoder
@@ -217,58 +218,70 @@ impl AudioComparator {
             .unwrap();
 
         let hash_duration = hash_duration.unwrap_or(Duration::from_secs(1));
-        let mut last_hash_duration = None;
+        let mut last_fingerprint_ts = None;
         hash_ctx.start(sample_rate, 2).unwrap();
 
-        ctx.packets()
+        let audio_packets = ctx
+            .packets()
             .filter(|(s, _)| s.index() == stream_idx)
-            .take(count.unwrap_or(usize::MAX))
-            .enumerate()
-            .map(|(i, (s, mut p))| {
+            .map(|(s, p)| {
                 let time_base = f64::from(s.time_base());
                 let pts = p.pts().unwrap();
                 let ts = Duration::from_millis((pts as f64 * time_base * 1000.0) as u64);
                 (s, p, ts)
-            })
-            .for_each(|(s, p, ts)| {
-                if last_hash_duration.is_none() {
-                    last_hash_duration = Some(ts);
-                }
-
-                decoder.send_packet(&p).unwrap();
-                while decoder.receive_frame(&mut frame).is_ok() {
-                    // Resample frame to S16 stereo.
-                    resampler.run(&frame, &mut frame_resampled).unwrap();
-
-                    // Obtain a slice of raw bytes in interleaved format.
-                    // We have two channels, so the bytes look like this: c1, c1, c2, c2, c1, c1, c2, c2, ...
-                    //
-                    // Note that `data` is a fixed-size buffer. To get the _actual_ sample bytes, we need to use:
-                    // a) sample count, b) channel count, and c) number of bytes per S16 sample.
-                    let raw_samples = &frame_resampled.data(0)
-                        [..frame_resampled.samples() * frame_resampled.channels() as usize * 2];
-                    // Transmute the raw byte slice into a slice of i16 samples.
-                    // This looks like: c1, c2, c1, c2, ...
-                    let (_, samples, _) = unsafe { raw_samples.align_to() };
-
-                    // Feed the i16 samples to Chromaprint. Since we are using the default
-                    // sampling rate, Chromaprint will not do any resampling internally.
-                    hash_ctx.feed(samples).unwrap();
-
-                    f.write(raw_samples).unwrap();
-
-                    let last = last_hash_duration.unwrap();
-
-                    // If the required duration has passed, generate a fingerprint.
-                    if ts >= last && (ts - last) >= hash_duration {
-                        hash_ctx.finish().unwrap();
-                        let hash = hash_ctx.get_fingerprint_hash().unwrap().get();
-                        output.push((hash, ts));
-                        hash_ctx.start(sample_rate, 2).unwrap();
-                        last_hash_duration = Some(ts);
-                    }
-                }
             });
+
+        let mut first_ts: Option<Duration> = None;
+
+        for (s, p, ts) in audio_packets {
+            if last_fingerprint_ts.is_none() {
+                last_fingerprint_ts = Some(ts);
+            }
+
+            if first_ts.is_none() {
+                first_ts = Some(ts);
+            } else if ts - first_ts.unwrap() > duration {
+                break;
+            }
+
+            decoder.send_packet(&p).unwrap();
+            while decoder.receive_frame(&mut frame).is_ok() {
+                // Resample frame to S16 stereo.
+                resampler.run(&frame, &mut frame_resampled).unwrap();
+
+                // Obtain a slice of raw bytes in interleaved format.
+                // We have two channels, so the bytes look like this: c1, c1, c2, c2, c1, c1, c2, c2, ...
+                //
+                // Note that `data` is a fixed-size buffer. To get the _actual_ sample bytes, we need to use:
+                // a) sample count, b) channel count, and c) number of bytes per S16 sample.
+                let raw_samples = &frame_resampled.data(0)
+                    [..frame_resampled.samples() * frame_resampled.channels() as usize * 2];
+                // Transmute the raw byte slice into a slice of i16 samples.
+                // This looks like: c1, c2, c1, c2, ...
+                let (_, samples, _) = unsafe { raw_samples.align_to() };
+
+                // Feed the i16 samples to Chromaprint. Since we are using the default
+                // sampling rate, Chromaprint will not do any resampling internally.
+                hash_ctx.feed(samples).unwrap();
+
+                // If the required duration has passed, generate a fingerprint.
+                let last = last_fingerprint_ts.unwrap();
+                if ts >= last && (ts - last) >= hash_duration {
+                    hash_ctx.finish().unwrap();
+                    // TODO(aksiksi): fix unsoundness in chromaprint library
+                    //
+                    // let raw_fingerprint = hash_ctx.get_fingerprint_raw().unwrap().get();
+                    // dbg!(raw_fingerprint, raw_fingerprint.as_ptr(), unsafe {
+                    //     *raw_fingerprint.as_ptr()
+                    // });
+                    // let hash = simhash32(raw_fingerprint);
+                    let hash = hash_ctx.get_fingerprint_hash().unwrap().get();
+                    output.push((hash, ts));
+                    hash_ctx.start(sample_rate, 2).unwrap();
+                    last_fingerprint_ts = Some(ts);
+                }
+            }
+        }
 
         // We're always in the start state by this point.
         hash_ctx.finish().unwrap();
@@ -306,9 +319,9 @@ impl AudioComparator {
             src_stream_idx,
             &mut self.src_hash_ctx,
             Some(Duration::from_secs(3)),
-            Some(1440),
             None,
             // Some(48000),
+            Some(Duration::from_secs(10)),
         );
         let dst_frame_hashes = Self::process_frames(
             &mut self.dst_ctx,
@@ -316,11 +329,11 @@ impl AudioComparator {
             dst_stream_idx,
             &mut self.dst_hash_ctx,
             Some(Duration::from_secs(3)),
-            Some(1440),
             None,
             // Some(48000),
+            Some(Duration::from_secs(10)),
         );
-        for ((h1, t1), (h2, t2)) in src_frame_hashes.iter().zip(dst_frame_hashes.iter().skip(1)) {
+        for ((h1, t1), (h2, t2)) in src_frame_hashes.iter().zip(dst_frame_hashes.iter()) {
             tracing::info!(
                 t1 = t1.as_millis() as u64,
                 t2 = t2.as_millis() as u64,

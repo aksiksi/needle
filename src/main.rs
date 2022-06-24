@@ -7,6 +7,8 @@ use ffmpeg_next::format::Pixel;
 
 #[cfg(feature = "audio")]
 mod audio;
+#[cfg(feature = "audio")]
+mod simhash;
 #[cfg(feature = "video")]
 mod video;
 
