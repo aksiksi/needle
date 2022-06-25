@@ -9,6 +9,7 @@ mod audio;
 mod simhash;
 #[cfg(feature = "video")]
 mod video;
+mod util;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -35,6 +36,9 @@ struct Args {
 
     #[clap(name = "FILE", required = true, number_of_values = 2)]
     files: Vec<PathBuf>,
+
+    #[clap(short, long, default_value = "false")]
+    write_result: bool,
 }
 
 fn main() {
@@ -53,7 +57,7 @@ fn main() {
         #[cfg(feature = "audio")]
         Mode::Audio => {
             let mut audio_comparator = audio::AudioComparator::new(&args.files[0], &args.files[1]).unwrap();
-            audio_comparator.run().unwrap();
+            audio_comparator.run(args.write_result).unwrap();
         }
         #[cfg(feature = "video")]
         Mode::Video => {

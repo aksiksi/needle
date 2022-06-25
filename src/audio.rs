@@ -3,11 +3,11 @@ extern crate ffmpeg_next;
 
 use std::collections::BinaryHeap;
 use std::fmt::Display;
-use std::io::Write;
 use std::path::Path;
 use std::time::Duration;
 
 use super::simhash::simhash32;
+use super::util;
 use super::Error;
 
 /// Wraps the `ffmpeg` video decoder.
@@ -48,18 +48,18 @@ impl AudioDecoder {
     }
 }
 
-type ComparatorHeap<'a> = BinaryHeap<ComparatorHeapEntry<'a>>;
+type ComparatorHeap = BinaryHeap<ComparatorHeapEntry>;
 
 #[derive(Debug, Eq, PartialEq, PartialOrd, Ord)]
-struct ComparatorHeapEntry<'a> {
+struct ComparatorHeapEntry {
     // priority: number of hits * max run length
     priority: usize,
-    src_longest_run: &'a [(u32, Duration)],
-    dst_longest_run: &'a [(u32, Duration)],
+    src_longest_run: (Duration, Duration),
+    dst_longest_run: (Duration, Duration),
     hash_data: Vec<(Duration, Duration, u32)>,
 }
 
-impl<'a> Display for ComparatorHeapEntry<'a> {
+impl Display for ComparatorHeapEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -195,11 +195,9 @@ impl AudioComparator {
         hash_duration: Option<Duration>,
         duration: Option<Duration>,
         start_ts: Option<Duration>,
-        output: Option<impl AsRef<Path>>,
-    ) -> Vec<(u32, Duration)> {
+        write_samples: bool,
+    ) -> (Vec<(u32, Duration)>, Vec<(Duration, Vec<u8>)>) {
         let _g = tracing::span!(tracing::Level::TRACE, "process_frames");
-
-        let mut f = output.map(|p| std::fs::File::create(p).unwrap());
 
         // If a start time is provided, seek to the correct place in the stream.
         if let Some(start_ts) = start_ts {
@@ -209,6 +207,7 @@ impl AudioComparator {
         let end_time = start_ts.and_then(|s| duration.map(|d| s + d));
 
         let mut hashes = Vec::new();
+        let mut output_samples = Vec::new();
         let mut frame = ffmpeg_next::frame::Audio::empty();
         let mut frame_resampled = ffmpeg_next::frame::Audio::empty();
 
@@ -219,8 +218,14 @@ impl AudioComparator {
         let n = 10;
         let hash_duration = hash_duration.unwrap_or(Duration::from_secs(1));
         let hash_resolution = hash_duration.div_f32(n as f32);
-        let mut fingerprinter =
-            chromaprint::DelayedFingerprinter::new(n, hash_duration, hash_resolution, None, 2);
+        let mut fingerprinter = chromaprint::DelayedFingerprinter::new(
+            n,
+            hash_duration,
+            hash_resolution,
+            None,
+            2,
+            None,
+        );
 
         // Setup the audio resampler
         let target_sample_rate = fingerprinter.sample_rate();
@@ -255,56 +260,48 @@ impl AudioComparator {
             decoder.send_packet(&p).unwrap();
             while decoder.receive_frame(&mut frame).is_ok() {
                 // Resample frame to S16 stereo and return the frame delay.
-                let delay = resampler
+                let mut delay = resampler
                     .run(&frame, &mut frame_resampled)
-                    .expect("frame resampling failed")
-                    .map(|d| Duration::from_millis(d.milliseconds as u64));
+                    .expect("frame resampling failed");
 
-                // Obtain a slice of raw bytes in interleaved format.
-                // We have two channels, so the bytes look like this: c1, c1, c2, c2, c1, c1, c2, c2, ...
-                //
-                // Note that `data` is a fixed-size buffer. To get the _actual_ sample bytes, we need to use:
-                // a) sample count, b) channel count, and c) number of bytes per S16 sample.
-                let raw_samples = &frame_resampled.data(0)
-                    [..frame_resampled.samples() * frame_resampled.channels() as usize * 2];
-                // Transmute the raw byte slice into a slice of i16 samples.
-                // This looks like: c1, c2, c1, c2, ...
-                let (_, samples, _) = unsafe { raw_samples.align_to() };
+                loop {
+                    // Obtain a slice of raw bytes in interleaved format.
+                    // We have two channels, so the bytes look like this: c1, c1, c2, c2, c1, c1, c2, c2, ...
+                    //
+                    // Note that `data` is a fixed-size buffer. To get the _actual_ sample bytes, we need to use:
+                    // a) sample count, b) channel count, and c) number of bytes per S16 sample.
+                    let raw_samples = &frame_resampled.data(0)
+                        [..frame_resampled.samples() * frame_resampled.channels() as usize * 2];
+                    // Transmute the raw byte slice into a slice of i16 samples.
+                    // This looks like: c1, c2, c1, c2, ...
+                    let (_, samples, _) = unsafe { raw_samples.align_to() };
 
-                if let Some(f) = &mut f {
-                    f.write(raw_samples).unwrap();
-                }
-
-                // Feed the i16 samples to Chromaprint. Since we are using the default sampling rate,
-                // Chromaprint will _not_ do any resampling internally.
-                for (raw_fingerprint, mut raw_ts) in fingerprinter.feed(samples).unwrap() {
-                    // Adjust the raw timestamp based on the actual stream start time. We need to do this because
-                    // the fingerprinter starts its clock at 0 and is unaware of actual video time.
-                    if let Some(start_ts) = start_ts {
-                        raw_ts += start_ts;
+                    if write_samples {
+                        output_samples.push((fingerprinter.clock(), raw_samples.to_vec()));
                     }
 
-                    // The raw timestamp from Chromaprint needs to be corrected based on current resampler delay.
-                    // This tells us when the audio would _actually_ have played (in absolute time) if it were playing
-                    // at the original rate.
-                    //
-                    // This is particularly important when the input sample rate is not divisible by the output rate,
-                    // as some samples would be discarded from every frame, causing significant drift over time between
-                    // the output audio and original video stream.
-                    let ts = if let Some(delay) = delay {
-                        raw_ts + delay
+                    // Feed the i16 samples to Chromaprint. Since we are using the default sampling rate,
+                    // Chromaprint will _not_ do any resampling internally.
+                    for (raw_fingerprint, mut ts) in fingerprinter.feed(samples).unwrap() {
+                        // Adjust the raw timestamp based on the actual stream start time. We need to do this because
+                        // the fingerprinter starts its clock at 0 and is unaware of actual video time.
+                        if let Some(start_ts) = start_ts {
+                            ts += start_ts;
+                        }
+                        let hash = simhash32(raw_fingerprint.get());
+                        hashes.push((hash, ts));
+                    }
+
+                    if delay.is_none() {
+                        break;
                     } else {
-                        raw_ts
-                    };
-
-                    let hash = simhash32(raw_fingerprint.get());
-
-                    hashes.push((hash, ts));
+                        delay = resampler.flush(&mut frame_resampled).unwrap();
+                    }
                 }
             }
         }
 
-        hashes
+        (hashes, output_samples)
     }
 
     // Returns all packets for a given stream.
@@ -320,11 +317,12 @@ impl AudioComparator {
     }
 
     // TODO(aksiksi): Document this.
-    fn sliding_window_analyzer<'a>(
-        src: &'a [(u32, Duration)],
-        dst: &'a [(u32, Duration)],
+    fn sliding_window_analyzer(
+        src: &[(u32, Duration)],
+        dst: &[(u32, Duration)],
         threshold: Option<u32>,
-        heap: &mut ComparatorHeap<'a>,
+        heap: &mut ComparatorHeap,
+        reverse: bool,
     ) {
         let threshold = threshold.unwrap_or(Self::CHROMAPRINT_MATCH_THRESHOLD);
 
@@ -336,15 +334,13 @@ impl AudioComparator {
             let src_hashes = &src[..src_end];
             let dst_hashes = &dst[dst_start..];
 
-            let mut count = 0;
-
             let mut in_run = false;
             let mut run_len = 0;
             let mut max_run_len = 0;
             let mut src_run_start_idx = 0;
             let mut dst_run_start_idx = 0;
-            let mut src_longest_run = &src[..];
-            let mut dst_longest_run = &dst[..];
+            let mut src_longest_run = Default::default();
+            let mut dst_longest_run = Default::default();
 
             let mut hash_data = Vec::new();
 
@@ -355,7 +351,6 @@ impl AudioComparator {
             {
                 let d = u32::count_ones(src_hash ^ dst_hash);
                 if d < threshold {
-                    count += 1;
                     if in_run {
                         run_len += 1;
                     } else {
@@ -368,33 +363,54 @@ impl AudioComparator {
                     in_run = false;
                     if run_len >= max_run_len {
                         max_run_len = run_len;
-                        src_longest_run =
-                            &src_hashes[src_run_start_idx..src_run_start_idx + run_len];
-                        dst_longest_run =
-                            &dst_hashes[dst_run_start_idx..dst_run_start_idx + run_len];
+                        src_longest_run = (
+                            src_hashes[src_run_start_idx].1,
+                            src_hashes[src_run_start_idx + run_len].1,
+                        );
+                        dst_longest_run = (
+                            dst_hashes[dst_run_start_idx].1,
+                            dst_hashes[dst_run_start_idx + run_len].1,
+                        );
                     }
                 }
-                hash_data.push((*src_ts, *dst_ts, d));
+
+                if !reverse {
+                    hash_data.push((*src_ts, *dst_ts, d));
+                } else {
+                    hash_data.push((*dst_ts, *src_ts, d));
+                }
             }
 
-            let priority = count * max_run_len;
-            if priority > 0 {
-                heap.push(ComparatorHeapEntry {
+            let priority = max_run_len;
+
+            let entry = if !reverse {
+                ComparatorHeapEntry {
                     priority,
                     src_longest_run,
                     dst_longest_run,
                     hash_data,
-                });
+                }
+            } else {
+                ComparatorHeapEntry {
+                    priority,
+                    dst_longest_run: src_longest_run,
+                    src_longest_run: dst_longest_run,
+                    hash_data,
+                }
+            };
+
+            if priority > 0 {
+                heap.push(entry);
             }
 
             n += 1;
         }
     }
 
-    fn find_best_match<'a>(
-        src_hashes: &'a [(u32, Duration)],
-        dst_hashes: &'a [(u32, Duration)],
-    ) -> Option<ComparatorHeapEntry<'a>> {
+    fn find_best_match(
+        src_hashes: &[(u32, Duration)],
+        dst_hashes: &[(u32, Duration)],
+    ) -> Option<ComparatorHeapEntry> {
         let mut heap: ComparatorHeap =
             BinaryHeap::with_capacity(src_hashes.len() + dst_hashes.len());
 
@@ -414,13 +430,13 @@ impl AudioComparator {
         //
         //               [ --- src --- ]
         //                             [ --- dst --- ]
-        Self::sliding_window_analyzer(src_hashes, dst_hashes, None, &mut heap);
-        Self::sliding_window_analyzer(dst_hashes, src_hashes, None, &mut heap);
+        Self::sliding_window_analyzer(src_hashes, dst_hashes, None, &mut heap, false);
+        Self::sliding_window_analyzer(dst_hashes, src_hashes, None, &mut heap, true);
 
         heap.pop()
     }
 
-    pub fn run(&mut self) -> anyhow::Result<()> {
+    pub fn run(&mut self, write_result: bool) -> anyhow::Result<()> {
         let (src_stream, dst_stream) = (self.src_stream(), self.dst_stream());
         let src_stream_idx = src_stream.index();
         let dst_stream_idx = dst_stream.index();
@@ -428,46 +444,78 @@ impl AudioComparator {
         let mut dst_decoder = self.dst_decoder()?;
 
         // Compute hashes for both files in 3 second chunks.
-        let src_frame_hashes = Self::process_frames(
+        let (src_frame_hashes, src_samples) = Self::process_frames(
             &mut self.src_ctx,
             &mut src_decoder,
             src_stream_idx,
             Some(Duration::from_secs(3)),
             None,
             None,
-            Some("f1.raw"),
+            write_result,
         );
-        let dst_frame_hashes = Self::process_frames(
+        let (dst_frame_hashes, dst_samples) = Self::process_frames(
             &mut self.dst_ctx,
             &mut dst_decoder,
             dst_stream_idx,
             Some(Duration::from_secs(3)),
             None,
             None,
-            Some("f2.raw"),
+            write_result,
         );
-
-        // for ((h1, t1), (h2, t2)) in src_frame_hashes.iter().zip(dst_frame_hashes.iter()) {
-        //     tracing::info!(
-        //         t1 = t1.as_millis() as u64,
-        //         t2 = t2.as_millis() as u64,
-        //         h1 = h1,
-        //         h2 = h2,
-        //         similarity = u32::count_ones(h1 ^ h2),
-        //     );
-        // }
 
         // We partition the hashes into opening and ending. The assumption is that the opening exists in the
         // first 75% of the video and the ending exists in the last 25%.
-        let src_partition_idx = (src_frame_hashes.len() as f32 * 0.75) as usize;
-        let dst_partition_idx = (dst_frame_hashes.len() as f32 * 0.75) as usize;
+        // let src_partition_idx = (src_frame_hashes.len() as f32 * 0.75) as usize;
+        // let dst_partition_idx = (dst_frame_hashes.len() as f32 * 0.75) as usize;
+        let src_partition_idx = src_frame_hashes.len();
+        let dst_partition_idx = dst_frame_hashes.len();
         let (src_opening_hashes, src_ending_hashes) = src_frame_hashes.split_at(src_partition_idx);
         let (dst_opening_hashes, dst_ending_hashes) = dst_frame_hashes.split_at(dst_partition_idx);
 
-        let opening = Self::find_best_match(src_opening_hashes, dst_opening_hashes).unwrap();
-        let ending = Self::find_best_match(src_ending_hashes, dst_ending_hashes).unwrap();
-        println!("{}", opening);
-        println!("{}", ending);
+        if let Some(opening) = Self::find_best_match(src_opening_hashes, dst_opening_hashes) {
+            println!(
+                "Opening - source: {:?}-{:?}, destination: {:?}-{:?}",
+                util::format_time(opening.src_longest_run.0),
+                util::format_time(opening.src_longest_run.1),
+                util::format_time(opening.dst_longest_run.0),
+                util::format_time(opening.dst_longest_run.1),
+            );
+            if write_result {
+                util::write_samples_in_range(
+                    "opening_src.raw",
+                    opening.src_longest_run,
+                    &src_samples,
+                );
+                util::write_samples_in_range(
+                    "opening_dst.raw",
+                    opening.dst_longest_run,
+                    &dst_samples,
+                );
+            }
+        }
+
+        if let Some(ending) = Self::find_best_match(src_ending_hashes, dst_ending_hashes) {
+            println!(
+                "Ending - source: {:?}-{:?}, destination: {:?}-{:?}",
+                util::format_time(ending.src_longest_run.0),
+                util::format_time(ending.src_longest_run.1),
+                util::format_time(ending.dst_longest_run.0),
+                util::format_time(ending.dst_longest_run.1),
+            );
+
+            if write_result {
+                util::write_samples_in_range(
+                    "ending_src.raw",
+                    ending.src_longest_run,
+                    &src_samples,
+                );
+                util::write_samples_in_range(
+                    "ending_dst.raw",
+                    ending.dst_longest_run,
+                    &dst_samples,
+                );
+            }
+        }
 
         Ok(())
     }
