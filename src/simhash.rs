@@ -2,7 +2,8 @@ use core::ops::{AddAssign, BitAnd, BitOrAssign, SubAssign, Shl};
 
 use num_traits::{FromPrimitive, Num, ops::wrapping::WrappingSub};
 
-/// 32-bit version of simhash.
+/// 32-bit version of SimHash.
+#[inline]
 pub fn simhash32(data: &[u32]) -> u32 {
     simhash::<u32, 32>(data)
 }
@@ -15,6 +16,7 @@ pub fn simhash32(data: &[u32]) -> u32 {
 /// 2) the hash size must match the input bit width
 ///
 /// Reimplementation of: https://github.com/acoustid/chromaprint/blob/516e3b31c7fa6e822035ea3b3e31f9c7f51ef4b6/src/simhash.cpp#L8
+#[inline]
 pub fn simhash<T, const N: usize>(data: &[T]) -> T
 where
     T: Num
@@ -27,7 +29,7 @@ where
         + Shl<Output = T>
         + Copy,
 {
-    assert_eq!(std::mem::size_of::<T>() * 8, N, "size of T must be equal to N bits");
+    assert_eq!(std::mem::size_of::<T>() * 8, N, "size of T must be equal to {} bits", N);
 
     let mut buf = [0i64; N];
 

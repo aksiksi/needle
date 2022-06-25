@@ -3,10 +3,9 @@ extern crate ffmpeg_next;
 
 use std::collections::BinaryHeap;
 use std::fmt::Display;
+use std::io::Write;
 use std::path::Path;
 use std::time::Duration;
-
-use chromaprint::Fingerprint;
 
 use super::simhash::simhash32;
 use super::Error;
@@ -40,26 +39,6 @@ impl AudioDecoder {
         Ok(Self { decoder })
     }
 
-    fn channels(&self) -> u16 {
-        self.decoder.channels()
-    }
-
-    fn bit_rate(&self) -> usize {
-        self.decoder.bit_rate()
-    }
-
-    fn sample_rate(&self) -> u32 {
-        self.decoder.rate()
-    }
-
-    fn format(&self) -> ffmpeg_next::format::Sample {
-        self.decoder.format()
-    }
-
-    fn channel_layout(&self) -> ffmpeg_next::ChannelLayout {
-        self.decoder.channel_layout()
-    }
-
     fn send_packet(&mut self, packet: &ffmpeg_next::packet::Packet) -> anyhow::Result<()> {
         Ok(self.decoder.send_packet(packet)?)
     }
@@ -82,7 +61,11 @@ struct ComparatorHeapEntry<'a> {
 
 impl<'a> Display for ComparatorHeapEntry<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "priority: {}, src_longest_run: {:?}, dst_longest_run: {:?}", self.priority, self.src_longest_run, self.dst_longest_run)
+        write!(
+            f,
+            "priority: {}, src_longest_run: {:?}, dst_longest_run: {:?}",
+            self.priority, self.src_longest_run, self.dst_longest_run
+        )
     }
 }
 
@@ -93,7 +76,7 @@ pub struct AudioComparator {
 }
 
 impl AudioComparator {
-    const FRAME_HASH_MATCH_THRESHOLD: u32 = 10;
+    const CHROMAPRINT_MATCH_THRESHOLD: u32 = 10;
 
     pub fn new<P, Q>(src_path: P, dst_path: Q) -> anyhow::Result<Self>
     where
@@ -127,33 +110,8 @@ impl AudioComparator {
         AudioDecoder::from_stream(self.dst_stream(), false)
     }
 
-    // Returns the blockhash of the given frame.
-    #[inline(always)]
-    fn hash_frame(f: &ffmpeg_next::frame::Audio) -> anyhow::Result<u32> {
-        assert!(
-            f.format()
-                == ffmpeg_next::format::Sample::I16(ffmpeg_next::format::sample::Type::Packed)
-        );
-        let mut ctx = chromaprint::Context::default();
-        ctx.start(f.rate(), f.channels());
-        ctx.feed(f.plane(0))?;
-        ctx.finish()?;
-        Ok(ctx.get_fingerprint_hash()?.get())
-    }
-
-    // Compares two frames by computing their blockhashes and returns the
-    // difference (Hamming distance).
-    #[inline(always)]
-    fn compare_two_frames(
-        f1: &ffmpeg_next::frame::Audio,
-        f2: &ffmpeg_next::frame::Audio,
-    ) -> anyhow::Result<u32> {
-        let d1 = Self::hash_frame(f1)?;
-        let d2 = Self::hash_frame(f2)?;
-        Ok(u32::count_ones(d1 ^ d2))
-    }
-
     // Returns the actual presentation timestamp for this frame (i.e., timebase agnostic).
+    #[allow(unused)]
     fn frame_timestamp(
         ctx: &mut ffmpeg_next::format::context::Input,
         stream_idx: usize,
@@ -195,6 +153,38 @@ impl AudioComparator {
         Ok(())
     }
 
+    // Decode and resample one packet in the stream to determinew what the current stream
+    // delay is, if any.
+    #[allow(unused)]
+    fn find_initial_stream_delay(
+        ctx: &mut ffmpeg_next::format::context::Input,
+        stream_idx: usize,
+        decoder: &mut AudioDecoder,
+        resampler: &mut ffmpeg_next::software::resampling::Context,
+    ) -> Option<Duration> {
+        let first_packet = ctx
+            .packets()
+            .filter(|(s, _)| s.index() == stream_idx)
+            .map(|(_, p)| p)
+            .next();
+        if first_packet.is_none() {
+            return None;
+        }
+
+        // Decode the packet
+        let mut frame = ffmpeg_next::frame::Audio::empty();
+        let packet = first_packet.unwrap();
+        decoder.send_packet(&packet).unwrap();
+        if decoder.receive_frame(&mut frame).is_err() {
+            return None;
+        }
+
+        // Resample the frame and return any delay
+        let mut frame_resampled = ffmpeg_next::frame::Audio::empty();
+        let delay = resampler.run(&frame, &mut frame_resampled).unwrap();
+        delay.map(|d| Duration::from_millis(d.milliseconds as u64))
+    }
+
     // Given an audio stream, computes the fingerprint for raw audio for the given duration.
     //
     // `count` can be used to limit the number of frames to process.
@@ -205,29 +195,34 @@ impl AudioComparator {
         hash_duration: Option<Duration>,
         duration: Option<Duration>,
         start_ts: Option<Duration>,
+        output: Option<impl AsRef<Path>>,
     ) -> Vec<(u32, Duration)> {
         let _g = tracing::span!(tracing::Level::TRACE, "process_frames");
 
+        let mut f = output.map(|p| std::fs::File::create(p).unwrap());
+
+        // If a start time is provided, seek to the correct place in the stream.
         if let Some(start_ts) = start_ts {
             Self::seek_to_timestamp(ctx, stream_idx, start_ts).unwrap();
         }
+        // Compute the end time based on provided start time.
+        let end_time = start_ts.and_then(|s| duration.map(|d| s + d));
 
-        let mut output = Vec::new();
+        let mut hashes = Vec::new();
         let mut frame = ffmpeg_next::frame::Audio::empty();
         let mut frame_resampled = ffmpeg_next::frame::Audio::empty();
-        let duration = duration.unwrap_or(Duration::from_secs(u64::MAX));
 
+        // Setup the audio fingerprinter
+        //
+        // We set the hash resolution to 1/10th of the provided hash duration. Internally,
+        // we will have 10 chromaprint instances.
+        let n = 10;
         let hash_duration = hash_duration.unwrap_or(Duration::from_secs(1));
-        let hash_resolution = Duration::from_millis(300);
-        let n = (hash_duration.as_secs_f32() / hash_resolution.as_secs_f32()) as usize;
-        let mut fingerprinter = chromaprint::DelayedFingerprinter::new(
-            n,
-            hash_duration,
-            hash_resolution,
-            None,
-            2,
-            start_ts,
-        );
+        let hash_resolution = hash_duration.div_f32(n as f32);
+        let mut fingerprinter =
+            chromaprint::DelayedFingerprinter::new(n, hash_duration, hash_resolution, None, 2);
+
+        // Setup the audio resampler
         let target_sample_rate = fingerprinter.sample_rate();
         let mut resampler = decoder
             .decoder
@@ -241,18 +236,29 @@ impl AudioComparator {
         // TODO(aksiksi): Allow selection of stream.
         let audio_packets = ctx
             .packets()
-            .filter(|(s, _)| s.index() == stream_idx);
+            .filter(|(s, _)| s.index() == stream_idx)
+            .map(|(s, p)| {
+                let time_base = f64::from(s.time_base());
+                let pts = p.pts().expect("unable to extract PTS from packet");
+                let pts = Duration::from_millis((pts as f64 * time_base * 1000.0) as u64);
+                (p, pts)
+            })
+            .take_while(|(_, pts)| {
+                if let Some(end_time) = end_time {
+                    *pts < end_time
+                } else {
+                    true
+                }
+            });
 
-        for (s, p) in audio_packets {
+        for (p, _) in audio_packets {
             decoder.send_packet(&p).unwrap();
             while decoder.receive_frame(&mut frame).is_ok() {
-                // Resample frame to S16 stereo.
-                let delay = resampler.run(&frame, &mut frame_resampled).unwrap();
-
-                // Compute PTS for the resampled frame.
-                // let time_base = f64::from(s.time_base());
-                // let pts = frame_resampled.pts().unwrap();
-                // let pts = Duration::from_millis((pts as f64 * time_base * 1000.0) as u64);
+                // Resample frame to S16 stereo and return the frame delay.
+                let delay = resampler
+                    .run(&frame, &mut frame_resampled)
+                    .expect("frame resampling failed")
+                    .map(|d| Duration::from_millis(d.milliseconds as u64));
 
                 // Obtain a slice of raw bytes in interleaved format.
                 // We have two channels, so the bytes look like this: c1, c1, c2, c2, c1, c1, c2, c2, ...
@@ -265,30 +271,45 @@ impl AudioComparator {
                 // This looks like: c1, c2, c1, c2, ...
                 let (_, samples, _) = unsafe { raw_samples.align_to() };
 
+                if let Some(f) = &mut f {
+                    f.write(raw_samples).unwrap();
+                }
+
                 // Feed the i16 samples to Chromaprint. Since we are using the default sampling rate,
                 // Chromaprint will _not_ do any resampling internally.
-                for (raw_fingerprint, raw_ts) in fingerprinter.feed(samples).unwrap() {
-                    let hash = simhash32(raw_fingerprint.get());
+                for (raw_fingerprint, mut raw_ts) in fingerprinter.feed(samples).unwrap() {
+                    // Adjust the raw timestamp based on the actual stream start time. We need to do this because
+                    // the fingerprinter starts its clock at 0 and is unaware of actual video time.
+                    if let Some(start_ts) = start_ts {
+                        raw_ts += start_ts;
+                    }
 
                     // The raw timestamp from Chromaprint needs to be corrected based on current resampler delay.
-                    // This tells us when the audio would _actually_ have reached (in time) if it were playing at
-                    // the original rate.
+                    // This tells us when the audio would _actually_ have played (in absolute time) if it were playing
+                    // at the original rate.
+                    //
+                    // This is particularly important when the input sample rate is not divisible by the output rate,
+                    // as some samples would be discarded from every frame, causing significant drift over time between
+                    // the output audio and original video stream.
                     let ts = if let Some(delay) = delay {
-                        raw_ts + Duration::from_millis(delay.milliseconds as u64)
+                        raw_ts + delay
                     } else {
                         raw_ts
                     };
 
-                    output.push((hash, ts));
+                    let hash = simhash32(raw_fingerprint.get());
+
+                    hashes.push((hash, ts));
                 }
             }
         }
 
-        output
+        hashes
     }
 
     // Returns all packets for a given stream.
-    fn get_all_packets(
+    #[allow(unused)]
+    pub fn get_all_packets(
         ctx: &mut ffmpeg_next::format::context::Input,
         stream_idx: usize,
     ) -> Vec<ffmpeg_next::codec::packet::Packet> {
@@ -298,8 +319,6 @@ impl AudioComparator {
             .collect()
     }
 
-    const DEFAULT_THRESHOLD: u32 = 10;
-
     // TODO(aksiksi): Document this.
     fn sliding_window_analyzer<'a>(
         src: &'a [(u32, Duration)],
@@ -307,7 +326,7 @@ impl AudioComparator {
         threshold: Option<u32>,
         heap: &mut ComparatorHeap<'a>,
     ) {
-        let threshold = threshold.unwrap_or(Self::DEFAULT_THRESHOLD);
+        let threshold = threshold.unwrap_or(Self::CHROMAPRINT_MATCH_THRESHOLD);
 
         let mut n = 1;
 
@@ -401,7 +420,7 @@ impl AudioComparator {
         heap.pop()
     }
 
-    pub fn compare(&mut self) -> anyhow::Result<()> {
+    pub fn run(&mut self) -> anyhow::Result<()> {
         let (src_stream, dst_stream) = (self.src_stream(), self.dst_stream());
         let src_stream_idx = src_stream.index();
         let dst_stream_idx = dst_stream.index();
@@ -415,8 +434,8 @@ impl AudioComparator {
             src_stream_idx,
             Some(Duration::from_secs(3)),
             None,
-            // Some(Duration::from_secs(1328)),
             None,
+            Some("f1.raw"),
         );
         let dst_frame_hashes = Self::process_frames(
             &mut self.dst_ctx,
@@ -424,8 +443,8 @@ impl AudioComparator {
             dst_stream_idx,
             Some(Duration::from_secs(3)),
             None,
-            // Some(Duration::from_secs(1328)),
             None,
+            Some("f2.raw"),
         );
 
         // for ((h1, t1), (h2, t2)) in src_frame_hashes.iter().zip(dst_frame_hashes.iter()) {
@@ -437,12 +456,6 @@ impl AudioComparator {
         //         similarity = u32::count_ones(h1 ^ h2),
         //     );
         // }
-
-        // Problem with this approach is that our hash resolution is 3 seconds. So, it is very likely
-        // that we will never line up hashes exactly between two streams.
-        //
-        // One way to overcome this is to generate 3 different fingerprints that are staggered by 1 sec.
-        // If we interleave the fingerprints, we (essentially) get a hash every second.
 
         // We partition the hashes into opening and ending. The assumption is that the opening exists in the
         // first 75% of the video and the ending exists in the last 25%.
