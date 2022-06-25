@@ -1,6 +1,7 @@
 extern crate chromaprint;
 extern crate ffmpeg_next;
 
+use std::collections::BinaryHeap;
 use std::path::Path;
 use std::time::Duration;
 
@@ -67,12 +68,21 @@ impl AudioDecoder {
     }
 }
 
+type ComparatorHeap<'a> = BinaryHeap<ComparatorHeapEntry<'a>>;
+
+#[derive(Debug, Eq, PartialEq, PartialOrd, Ord)]
+struct ComparatorHeapEntry<'a> {
+    // priority: number of hits * max run length
+    priority: usize,
+    src: &'a [(u32, Duration)],
+    dst: &'a [(u32, Duration)],
+    data: Vec<(Duration, Duration, u32)>,
+}
+
 /// Compares two audio streams.
 pub struct AudioComparator {
     src_ctx: ffmpeg_next::format::context::Input,
     dst_ctx: ffmpeg_next::format::context::Input,
-    src_hash_ctx: chromaprint::Context,
-    dst_hash_ctx: chromaprint::Context,
 }
 
 impl AudioComparator {
@@ -85,14 +95,7 @@ impl AudioComparator {
     {
         let src_ctx = ffmpeg_next::format::input(&src_path)?;
         let dst_ctx = ffmpeg_next::format::input(&dst_path)?;
-        let src_hash_ctx = chromaprint::Context::default();
-        let dst_hash_ctx = chromaprint::Context::default();
-        Ok(Self {
-            src_ctx,
-            dst_ctx,
-            src_hash_ctx,
-            dst_hash_ctx,
-        })
+        Ok(Self { src_ctx, dst_ctx })
     }
 
     fn src_stream(&self) -> ffmpeg_next::format::stream::Stream {
@@ -192,22 +195,33 @@ impl AudioComparator {
         ctx: &mut ffmpeg_next::format::context::Input,
         decoder: &mut AudioDecoder,
         stream_idx: usize,
-        hash_ctx: &mut chromaprint::Context,
         hash_duration: Option<Duration>,
         sample_rate: Option<u32>,
         duration: Option<Duration>,
+        start_ts: Option<Duration>,
     ) -> Vec<(u32, Duration)> {
         let _g = tracing::span!(tracing::Level::TRACE, "process_frames");
+
+        if let Some(start_ts) = start_ts {
+            Self::seek_to_timestamp(ctx, stream_idx, start_ts).unwrap();
+        }
 
         let mut output = Vec::new();
         let mut frame = ffmpeg_next::frame::Audio::empty();
         let mut frame_resampled = ffmpeg_next::frame::Audio::empty();
         let duration = duration.unwrap_or(Duration::from_secs(u64::MAX));
 
-        // By default, target the sample rate required by Chromaprint so that it does not
-        // resample audio internally.
-        let sample_rate = sample_rate.unwrap_or_else(|| hash_ctx.sample_rate());
-
+        let hash_duration = hash_duration.unwrap_or(Duration::from_secs(1));
+        let hash_resolution = Duration::from_millis(300);
+        let n = (hash_duration.as_secs_f32() / hash_resolution.as_secs_f32()) as usize;
+        let mut fingerprinter = chromaprint::DelayedFingerprinter::new(
+            n,
+            hash_duration,
+            hash_resolution,
+            sample_rate,
+            2,
+        );
+        let sample_rate = fingerprinter.sample_rate();
         let mut resampler = decoder
             .decoder
             .resampler(
@@ -216,10 +230,6 @@ impl AudioComparator {
                 sample_rate,
             )
             .unwrap();
-
-        let hash_duration = hash_duration.unwrap_or(Duration::from_secs(1));
-        let mut last_fingerprint_ts = None;
-        hash_ctx.start(sample_rate, 2).unwrap();
 
         let audio_packets = ctx
             .packets()
@@ -231,19 +241,7 @@ impl AudioComparator {
                 (s, p, ts)
             });
 
-        let mut first_ts: Option<Duration> = None;
-
         for (s, p, ts) in audio_packets {
-            if last_fingerprint_ts.is_none() {
-                last_fingerprint_ts = Some(ts);
-            }
-
-            if first_ts.is_none() {
-                first_ts = Some(ts);
-            } else if ts - first_ts.unwrap() > duration {
-                break;
-            }
-
             decoder.send_packet(&p).unwrap();
             while decoder.receive_frame(&mut frame).is_ok() {
                 // Resample frame to S16 stereo.
@@ -260,25 +258,17 @@ impl AudioComparator {
                 // This looks like: c1, c2, c1, c2, ...
                 let (_, samples, _) = unsafe { raw_samples.align_to() };
 
-                // Feed the i16 samples to Chromaprint. Since we are using the default
-                // sampling rate, Chromaprint will not do any resampling internally.
-                hash_ctx.feed(samples).unwrap();
-
-                // If the required duration has passed, generate a fingerprint.
-                let last = last_fingerprint_ts.unwrap();
-                if ts >= last && (ts - last) >= hash_duration {
-                    hash_ctx.finish().unwrap();
-                    let raw_fingerprint = hash_ctx.get_fingerprint_raw().unwrap();
+                // Feed the i16 samples to Chromaprint. Since we are using the default sampling rate,
+                // Chromaprint will not do any resampling internally.
+                if let Some((raw_fingerprint, mut ts)) = fingerprinter.feed(samples).unwrap() {
                     let hash = simhash32(raw_fingerprint.get());
+                    if let Some(start_ts) = start_ts {
+                        ts += start_ts;
+                    }
                     output.push((hash, ts));
-                    hash_ctx.start(sample_rate, 2).unwrap();
-                    last_fingerprint_ts = Some(ts);
                 }
             }
         }
-
-        // We're always in the start state by this point.
-        hash_ctx.finish().unwrap();
 
         output
     }
@@ -294,48 +284,135 @@ impl AudioComparator {
             .collect()
     }
 
-    pub fn compare(&mut self, _count: usize) -> anyhow::Result<()> {
+    const DEFAULT_THRESHOLD: u32 = 10;
+
+    fn sliding_window_analyzer<'a>(
+        src: &'a [(u32, Duration)],
+        dst: &'a [(u32, Duration)],
+        threshold: Option<u32>,
+        heap: &mut ComparatorHeap<'a>,
+    ) {
+        let threshold = threshold.unwrap_or(Self::DEFAULT_THRESHOLD);
+
+        let mut n = 0;
+
+        while n < dst.len() {
+            let src_end = usize::min(n, src.len());
+            let dst_start = dst.len() - n - 1;
+            let src_hashes = &src[..src_end];
+            let dst_hashes = &dst[dst_start..];
+
+            let mut count = 0;
+            let mut v = vec![];
+            let mut in_run = false;
+            let mut run_len = 0;
+            let mut max_run_len = 0;
+            for ((src_hash, src_ts), (dst_hash, dst_ts)) in src_hashes.iter().zip(dst_hashes) {
+                let d = u32::count_ones(src_hash ^ dst_hash);
+                if d < threshold {
+                    count += 1;
+                    if in_run {
+                        run_len += 1;
+                    } else {
+                        in_run = true;
+                        run_len = 1;
+                    }
+                } else {
+                    in_run = false;
+                    max_run_len = usize::max(max_run_len, run_len);
+                }
+                v.push((*src_ts, *dst_ts, d));
+            }
+
+            heap.push(ComparatorHeapEntry {
+                priority: count * max_run_len,
+                src: src_hashes,
+                dst: dst_hashes,
+                data: v,
+            });
+
+            n += 1;
+        }
+    }
+
+    pub fn compare(&mut self) -> anyhow::Result<()> {
         let (src_stream, dst_stream) = (self.src_stream(), self.dst_stream());
         let src_stream_idx = src_stream.index();
         let dst_stream_idx = dst_stream.index();
         let mut src_decoder = self.src_decoder()?;
         let mut dst_decoder = self.dst_decoder()?;
 
-        let packets = Self::get_all_packets(&mut self.src_ctx, src_stream_idx);
-        tracing::info!(num_packets = packets.len());
-
-        Self::seek_to_timestamp(&mut self.src_ctx, src_stream_idx, Duration::from_secs(208))?;
-        Self::seek_to_timestamp(&mut self.dst_ctx, dst_stream_idx, Duration::from_secs(174))?;
-
+        // Compute hashes for both files in 3 second chunks.
         let src_frame_hashes = Self::process_frames(
             &mut self.src_ctx,
             &mut src_decoder,
             src_stream_idx,
-            &mut self.src_hash_ctx,
             Some(Duration::from_secs(3)),
             None,
-            // Some(48000),
-            Some(Duration::from_secs(120)),
+            None,
+            // Some(Duration::from_secs(1365)),
+            None,
         );
         let dst_frame_hashes = Self::process_frames(
             &mut self.dst_ctx,
             &mut dst_decoder,
             dst_stream_idx,
-            &mut self.dst_hash_ctx,
             Some(Duration::from_secs(3)),
             None,
-            // Some(48000),
-            Some(Duration::from_secs(120)),
+            None,
+            // Some(Duration::from_secs(1365)),
+            None,
         );
-        for ((h1, t1), (h2, t2)) in src_frame_hashes.iter().zip(dst_frame_hashes.iter()) {
-            tracing::info!(
-                t1 = t1.as_millis() as u64,
-                t2 = t2.as_millis() as u64,
-                h1 = h1,
-                h2 = h2,
-                similarity = u32::count_ones(h1 ^ h2),
-            );
-        }
+
+        // for ((h1, t1), (h2, t2)) in src_frame_hashes.iter().zip(dst_frame_hashes.iter()) {
+        //     tracing::info!(
+        //         t1 = t1.as_millis() as u64,
+        //         t2 = t2.as_millis() as u64,
+        //         h1 = h1,
+        //         h2 = h2,
+        //         similarity = u32::count_ones(h1 ^ h2),
+        //     );
+        // }
+
+        // (1)
+        //               [ --- src --- ]
+        // [ --- dst --- ]
+        //
+        //               [ --- src --- ]
+        //       [ --- dst --- ]
+        //
+        //               [ --- src --- ]
+        //               [ --- dst --- ]
+        //
+        // (2)
+        //               [ --- src --- ]
+        //                       [ --- dst --- ]
+        //
+        //               [ --- src --- ]
+        //                             [ --- dst --- ]
+
+        // Problem with this approach is that our hash resolution is 3 seconds. So, it is very likely
+        // that we will never line up hashes exactly between two streams.
+        //
+        // One way to overcome this is to generate 3 different fingerprints that are staggered by 1 sec.
+        // If we interleave the fingerprints, we (essentially) get a hash every second.
+
+        let mut heap: ComparatorHeap = BinaryHeap::new();
+
+        // (1)
+        Self::sliding_window_analyzer(&src_frame_hashes, &dst_frame_hashes, None, &mut heap);
+        Self::sliding_window_analyzer(&dst_frame_hashes, &src_frame_hashes, None, &mut heap);
+
+        dbg!(heap.len());
+
+        // for _ in 0..10 {
+        //     let m = heap.pop().unwrap();
+        //     dbg!(m.0, m.3[0]);
+        // }
+
+        let m = heap.pop().unwrap();
+        dbg!(m.priority);
+        //dbg!(m.data);
 
         Ok(())
     }

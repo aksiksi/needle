@@ -38,5 +38,5 @@ fn main() {
     // video_comparator.compare(1000).unwrap();
 
     let mut audio_comparator = audio::AudioComparator::new(S1_PATH, S2_PATH).unwrap();
-    audio_comparator.compare(1000).unwrap();
+    audio_comparator.compare().unwrap();
 }
