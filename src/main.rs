@@ -12,8 +12,8 @@ mod simhash;
 #[cfg(feature = "video")]
 mod video;
 
-const S1_PATH: &str = "/Users/aksiksi/Movies/ep1.mkv";
-const S2_PATH: &str = "/Users/aksiksi/Movies/ep2.mkv";
+const S1_PATH: &str = "/Users/aksiksi/Movies/ep2.mkv";
+const S2_PATH: &str = "/Users/aksiksi/Movies/ep3.mkv";
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {

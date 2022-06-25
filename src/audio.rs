@@ -2,6 +2,7 @@ extern crate chromaprint;
 extern crate ffmpeg_next;
 
 use std::collections::BinaryHeap;
+use std::fmt::Display;
 use std::path::Path;
 use std::time::Duration;
 
@@ -74,9 +75,15 @@ type ComparatorHeap<'a> = BinaryHeap<ComparatorHeapEntry<'a>>;
 struct ComparatorHeapEntry<'a> {
     // priority: number of hits * max run length
     priority: usize,
-    src: &'a [(u32, Duration)],
-    dst: &'a [(u32, Duration)],
-    data: Vec<(Duration, Duration, u32)>,
+    src_longest_run: &'a [(u32, Duration)],
+    dst_longest_run: &'a [(u32, Duration)],
+    hash_data: Vec<(Duration, Duration, u32)>,
+}
+
+impl<'a> Display for ComparatorHeapEntry<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "priority: {}, src_longest_run: {:?}, dst_longest_run: {:?}", self.priority, self.src_longest_run, self.dst_longest_run)
+    }
 }
 
 /// Compares two audio streams.
@@ -196,7 +203,6 @@ impl AudioComparator {
         decoder: &mut AudioDecoder,
         stream_idx: usize,
         hash_duration: Option<Duration>,
-        sample_rate: Option<u32>,
         duration: Option<Duration>,
         start_ts: Option<Duration>,
     ) -> Vec<(u32, Duration)> {
@@ -218,34 +224,35 @@ impl AudioComparator {
             n,
             hash_duration,
             hash_resolution,
-            sample_rate,
+            None,
             2,
+            start_ts,
         );
-        let sample_rate = fingerprinter.sample_rate();
+        let target_sample_rate = fingerprinter.sample_rate();
         let mut resampler = decoder
             .decoder
             .resampler(
                 ffmpeg_next::format::Sample::I16(ffmpeg_next::format::sample::Type::Packed),
                 ffmpeg_next::ChannelLayout::STEREO,
-                sample_rate,
+                target_sample_rate,
             )
             .unwrap();
 
+        // TODO(aksiksi): Allow selection of stream.
         let audio_packets = ctx
             .packets()
-            .filter(|(s, _)| s.index() == stream_idx)
-            .map(|(s, p)| {
-                let time_base = f64::from(s.time_base());
-                let pts = p.pts().unwrap();
-                let ts = Duration::from_millis((pts as f64 * time_base * 1000.0) as u64);
-                (s, p, ts)
-            });
+            .filter(|(s, _)| s.index() == stream_idx);
 
-        for (s, p, ts) in audio_packets {
+        for (s, p) in audio_packets {
             decoder.send_packet(&p).unwrap();
             while decoder.receive_frame(&mut frame).is_ok() {
                 // Resample frame to S16 stereo.
-                resampler.run(&frame, &mut frame_resampled).unwrap();
+                let delay = resampler.run(&frame, &mut frame_resampled).unwrap();
+
+                // Compute PTS for the resampled frame.
+                // let time_base = f64::from(s.time_base());
+                // let pts = frame_resampled.pts().unwrap();
+                // let pts = Duration::from_millis((pts as f64 * time_base * 1000.0) as u64);
 
                 // Obtain a slice of raw bytes in interleaved format.
                 // We have two channels, so the bytes look like this: c1, c1, c2, c2, c1, c1, c2, c2, ...
@@ -259,12 +266,19 @@ impl AudioComparator {
                 let (_, samples, _) = unsafe { raw_samples.align_to() };
 
                 // Feed the i16 samples to Chromaprint. Since we are using the default sampling rate,
-                // Chromaprint will not do any resampling internally.
-                if let Some((raw_fingerprint, mut ts)) = fingerprinter.feed(samples).unwrap() {
+                // Chromaprint will _not_ do any resampling internally.
+                for (raw_fingerprint, raw_ts) in fingerprinter.feed(samples).unwrap() {
                     let hash = simhash32(raw_fingerprint.get());
-                    if let Some(start_ts) = start_ts {
-                        ts += start_ts;
-                    }
+
+                    // The raw timestamp from Chromaprint needs to be corrected based on current resampler delay.
+                    // This tells us when the audio would _actually_ have reached (in time) if it were playing at
+                    // the original rate.
+                    let ts = if let Some(delay) = delay {
+                        raw_ts + Duration::from_millis(delay.milliseconds as u64)
+                    } else {
+                        raw_ts
+                    };
+
                     output.push((hash, ts));
                 }
             }
@@ -286,6 +300,7 @@ impl AudioComparator {
 
     const DEFAULT_THRESHOLD: u32 = 10;
 
+    // TODO(aksiksi): Document this.
     fn sliding_window_analyzer<'a>(
         src: &'a [(u32, Duration)],
         dst: &'a [(u32, Duration)],
@@ -294,20 +309,31 @@ impl AudioComparator {
     ) {
         let threshold = threshold.unwrap_or(Self::DEFAULT_THRESHOLD);
 
-        let mut n = 0;
+        let mut n = 1;
 
-        while n < dst.len() {
+        while n <= dst.len() {
             let src_end = usize::min(n, src.len());
-            let dst_start = dst.len() - n - 1;
+            let dst_start = dst.len() - n;
             let src_hashes = &src[..src_end];
             let dst_hashes = &dst[dst_start..];
 
             let mut count = 0;
-            let mut v = vec![];
+
             let mut in_run = false;
             let mut run_len = 0;
             let mut max_run_len = 0;
-            for ((src_hash, src_ts), (dst_hash, dst_ts)) in src_hashes.iter().zip(dst_hashes) {
+            let mut src_run_start_idx = 0;
+            let mut dst_run_start_idx = 0;
+            let mut src_longest_run = &src[..];
+            let mut dst_longest_run = &dst[..];
+
+            let mut hash_data = Vec::new();
+
+            for ((i, (src_hash, src_ts)), (j, (dst_hash, dst_ts))) in src_hashes
+                .iter()
+                .enumerate()
+                .zip(dst_hashes.iter().enumerate())
+            {
                 let d = u32::count_ones(src_hash ^ dst_hash);
                 if d < threshold {
                     count += 1;
@@ -316,63 +342,42 @@ impl AudioComparator {
                     } else {
                         in_run = true;
                         run_len = 1;
+                        src_run_start_idx = i;
+                        dst_run_start_idx = j;
                     }
-                } else {
+                } else if in_run {
                     in_run = false;
-                    max_run_len = usize::max(max_run_len, run_len);
+                    if run_len >= max_run_len {
+                        max_run_len = run_len;
+                        src_longest_run =
+                            &src_hashes[src_run_start_idx..src_run_start_idx + run_len];
+                        dst_longest_run =
+                            &dst_hashes[dst_run_start_idx..dst_run_start_idx + run_len];
+                    }
                 }
-                v.push((*src_ts, *dst_ts, d));
+                hash_data.push((*src_ts, *dst_ts, d));
             }
 
-            heap.push(ComparatorHeapEntry {
-                priority: count * max_run_len,
-                src: src_hashes,
-                dst: dst_hashes,
-                data: v,
-            });
+            let priority = count * max_run_len;
+            if priority > 0 {
+                heap.push(ComparatorHeapEntry {
+                    priority,
+                    src_longest_run,
+                    dst_longest_run,
+                    hash_data,
+                });
+            }
 
             n += 1;
         }
     }
 
-    pub fn compare(&mut self) -> anyhow::Result<()> {
-        let (src_stream, dst_stream) = (self.src_stream(), self.dst_stream());
-        let src_stream_idx = src_stream.index();
-        let dst_stream_idx = dst_stream.index();
-        let mut src_decoder = self.src_decoder()?;
-        let mut dst_decoder = self.dst_decoder()?;
-
-        // Compute hashes for both files in 3 second chunks.
-        let src_frame_hashes = Self::process_frames(
-            &mut self.src_ctx,
-            &mut src_decoder,
-            src_stream_idx,
-            Some(Duration::from_secs(3)),
-            None,
-            None,
-            // Some(Duration::from_secs(1365)),
-            None,
-        );
-        let dst_frame_hashes = Self::process_frames(
-            &mut self.dst_ctx,
-            &mut dst_decoder,
-            dst_stream_idx,
-            Some(Duration::from_secs(3)),
-            None,
-            None,
-            // Some(Duration::from_secs(1365)),
-            None,
-        );
-
-        // for ((h1, t1), (h2, t2)) in src_frame_hashes.iter().zip(dst_frame_hashes.iter()) {
-        //     tracing::info!(
-        //         t1 = t1.as_millis() as u64,
-        //         t2 = t2.as_millis() as u64,
-        //         h1 = h1,
-        //         h2 = h2,
-        //         similarity = u32::count_ones(h1 ^ h2),
-        //     );
-        // }
+    fn find_best_match<'a>(
+        src_hashes: &'a [(u32, Duration)],
+        dst_hashes: &'a [(u32, Duration)],
+    ) -> Option<ComparatorHeapEntry<'a>> {
+        let mut heap: ComparatorHeap =
+            BinaryHeap::with_capacity(src_hashes.len() + dst_hashes.len());
 
         // (1)
         //               [ --- src --- ]
@@ -390,6 +395,48 @@ impl AudioComparator {
         //
         //               [ --- src --- ]
         //                             [ --- dst --- ]
+        Self::sliding_window_analyzer(src_hashes, dst_hashes, None, &mut heap);
+        Self::sliding_window_analyzer(dst_hashes, src_hashes, None, &mut heap);
+
+        heap.pop()
+    }
+
+    pub fn compare(&mut self) -> anyhow::Result<()> {
+        let (src_stream, dst_stream) = (self.src_stream(), self.dst_stream());
+        let src_stream_idx = src_stream.index();
+        let dst_stream_idx = dst_stream.index();
+        let mut src_decoder = self.src_decoder()?;
+        let mut dst_decoder = self.dst_decoder()?;
+
+        // Compute hashes for both files in 3 second chunks.
+        let src_frame_hashes = Self::process_frames(
+            &mut self.src_ctx,
+            &mut src_decoder,
+            src_stream_idx,
+            Some(Duration::from_secs(3)),
+            None,
+            // Some(Duration::from_secs(1328)),
+            None,
+        );
+        let dst_frame_hashes = Self::process_frames(
+            &mut self.dst_ctx,
+            &mut dst_decoder,
+            dst_stream_idx,
+            Some(Duration::from_secs(3)),
+            None,
+            // Some(Duration::from_secs(1328)),
+            None,
+        );
+
+        // for ((h1, t1), (h2, t2)) in src_frame_hashes.iter().zip(dst_frame_hashes.iter()) {
+        //     tracing::info!(
+        //         t1 = t1.as_millis() as u64,
+        //         t2 = t2.as_millis() as u64,
+        //         h1 = h1,
+        //         h2 = h2,
+        //         similarity = u32::count_ones(h1 ^ h2),
+        //     );
+        // }
 
         // Problem with this approach is that our hash resolution is 3 seconds. So, it is very likely
         // that we will never line up hashes exactly between two streams.
@@ -397,22 +444,17 @@ impl AudioComparator {
         // One way to overcome this is to generate 3 different fingerprints that are staggered by 1 sec.
         // If we interleave the fingerprints, we (essentially) get a hash every second.
 
-        let mut heap: ComparatorHeap = BinaryHeap::new();
+        // We partition the hashes into opening and ending. The assumption is that the opening exists in the
+        // first 75% of the video and the ending exists in the last 25%.
+        let src_partition_idx = (src_frame_hashes.len() as f32 * 0.75) as usize;
+        let dst_partition_idx = (dst_frame_hashes.len() as f32 * 0.75) as usize;
+        let (src_opening_hashes, src_ending_hashes) = src_frame_hashes.split_at(src_partition_idx);
+        let (dst_opening_hashes, dst_ending_hashes) = dst_frame_hashes.split_at(dst_partition_idx);
 
-        // (1)
-        Self::sliding_window_analyzer(&src_frame_hashes, &dst_frame_hashes, None, &mut heap);
-        Self::sliding_window_analyzer(&dst_frame_hashes, &src_frame_hashes, None, &mut heap);
-
-        dbg!(heap.len());
-
-        // for _ in 0..10 {
-        //     let m = heap.pop().unwrap();
-        //     dbg!(m.0, m.3[0]);
-        // }
-
-        let m = heap.pop().unwrap();
-        dbg!(m.priority);
-        //dbg!(m.data);
+        let opening = Self::find_best_match(src_opening_hashes, dst_opening_hashes).unwrap();
+        let ending = Self::find_best_match(src_ending_hashes, dst_ending_hashes).unwrap();
+        println!("{}", opening);
+        println!("{}", ending);
 
         Ok(())
     }
