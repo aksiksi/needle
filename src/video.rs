@@ -113,8 +113,6 @@ pub struct VideoComparator {
 }
 
 impl VideoComparator {
-    const FRAME_HASH_MATCH_THRESHOLD: u32 = 10;
-
     pub fn new<P, Q>(src_path: P, dst_path: Q) -> anyhow::Result<Self>
     where
         P: AsRef<Path>,
@@ -160,6 +158,7 @@ impl VideoComparator {
 
     // Compares two frames by computing their blockhashes and returns the
     // difference (Hamming distance).
+    #[allow(unused)]
     #[inline(always)]
     fn compare_two_frames(f1: &ffmpeg_next::frame::Video, f2: &ffmpeg_next::frame::Video) -> u32 {
         let d1 = Self::hash_frame(f1);
@@ -168,6 +167,7 @@ impl VideoComparator {
     }
 
     // Returns the actual presentation timestamp for this frame (i.e., timebase agnostic).
+    #[allow(unused)]
     fn frame_timestamp(
         ctx: &mut ffmpeg_next::format::context::Input,
         stream_idx: usize,
@@ -344,6 +344,7 @@ fn save_frame<P: AsRef<Path>>(
 }
 
 // Load a frame into a `Vec` of bytes.
+    #[allow(unused)]
 fn load_frame<P: AsRef<Path>>(path: P) -> anyhow::Result<Vec<u8>> {
     let img_buf = image::io::Reader::open(path)?.decode()?;
     Ok(img_buf.to_luma8().to_vec())
