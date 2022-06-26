@@ -19,3 +19,16 @@ clap = { version = "3", features = ["derive"] }
 default = []
 video = ["blockhash", "image"]
 static = ["chromaprint/static", "ffmpeg-next/static"]
+
+[target.'cfg(windows)'.build-dependencies]
+vcpkg = "0.2"
+
+# Info for cargo-vcpkg
+[package.metadata.vcpkg]
+git = "https://github.com/microsoft/vcpkg"
+rev = "cef0b3ec767df6e83806899fe9525f6cf8d7bc91"
+
+[package.metadata.vcpkg.target]
+# Always use dynamic linking on Windows for ffmpeg.
+x86_64-pc-windows-msvc = { triplet = "x64-windows", dependencies = ["ffmpeg"] }
+
