@@ -31,8 +31,8 @@ struct Args {
     #[clap(short, long, value_enum, default_value_t = Mode::Audio, help = "Analysis mode. The default mode is audio, which uses audio streams to find potential openings and endings. Video mode is less accurate and _much_ slower, but is useful if no audio stream is available.")]
     mode: Mode,
 
-    #[clap(required = true, help = "Video files to analyze.", min_values = 2)]
-    files: Vec<PathBuf>,
+    #[clap(required = true, help = "Video files or directories to analyze.")]
+    videos: Vec<PathBuf>,
 
     #[clap(short, long, default_value = "false")]
     write_result: bool,
@@ -91,10 +91,53 @@ fn main() {
     }
     let opening_search_percentage = args.opening_search_percentage as f32 / 100.0;
 
+    // Validate all paths.
+    for path in &args.videos {
+        if !path.exists() {
+            let mut cmd = Args::command();
+            cmd.error(
+                ErrorKind::InvalidValue,
+                format!("path not found: {}", path.display()),
+            )
+            .exit();
+        }
+    }
+
+    // Find valid video files.
+    let mut valid_video_files = Vec::new();
+    for path in &args.videos {
+        if path.is_dir() {
+            valid_video_files.extend(
+                std::fs::read_dir(path)
+                    .unwrap()
+                    .map(|p| {
+                        let entry = p.unwrap();
+                        entry.path()
+                    })
+                    .filter(|p| util::is_valid_video_file(p, !cfg!(feature = "video")))
+                    .collect::<Vec<_>>(),
+            );
+        } else {
+            if util::is_valid_video_file(path, !cfg!(feature = "video")) {
+                valid_video_files.push(path.clone());
+            }
+        }
+    }
+
+    if valid_video_files.len() < 2 {
+        let mut cmd = Args::command();
+        cmd.error(
+            ErrorKind::InvalidValue,
+            format!("need at least 2 valid video files, but only found {} in provided video paths", valid_video_files.len()),
+        )
+        .exit();
+    }
+
     match args.mode {
         Mode::Audio => {
             let mut audio_comparator =
-                audio::AudioComparator::new(&args.files[0], &args.files[1], args.threaded).unwrap();
+                audio::AudioComparator::new(&args.videos[0], &args.videos[1], args.threaded)
+                    .unwrap();
             audio_comparator
                 .run(
                     args.write_result,

@@ -719,13 +719,13 @@ impl AudioComparator {
                     util::format_time(start),
                     util::format_time(end)
                 );
-                println!("* Opening: N/A");
+                println!("* Opening - N/A");
             }
             if write_result {
                 util::write_samples_in_range("opening_dst.raw", opening, &dst_samples);
             }
         } else {
-            println!("* Opening: N/A");
+            println!("* Opening - N/A");
         }
         if let Some(ending) = info.dst_ending {
             let (start, end) = ending;

@@ -1,5 +1,5 @@
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 pub fn write_samples_in_range(
@@ -32,11 +32,12 @@ pub fn is_valid_video_file(path: impl AsRef<Path>, audio: bool) -> bool {
     }
 }
 
-pub fn find_all_video_files<'a>(paths: &'a [impl AsRef<Path> + 'a], audio: bool) -> Vec<&'a Path> {
-    let mut video_files: Vec<&'a Path> = Vec::new();
+#[allow(unused)]
+pub fn find_all_video_files(paths: &[impl AsRef<Path>], audio: bool) -> Vec<PathBuf> {
+    let mut video_files: Vec<PathBuf> = Vec::new();
     for p in paths {
         if is_valid_video_file(p, audio) {
-            video_files.push(p.as_ref());
+            video_files.push(p.as_ref().to_owned());
         }
     }
     video_files
