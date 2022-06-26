@@ -44,7 +44,7 @@ struct Args {
         long,
         default_value = "75",
         value_parser = clap::value_parser!(u8),
-        help = "The analyzer will only look for the opening in the first percentage of the video and the ending in the remaining percentage. If this is set to 100, the opening and ending will be searched for in the entire video."
+        help = "Specifies which portion of the video the opening and ending should be in. For example, if set to 75%, a match found in the first 75% of the video will be considered the opening, while a match in the last 25% will be considered the ending."
     )]
     opening_search_percentage: u8,
 
@@ -85,7 +85,7 @@ fn main() {
 
     let args = Args::parse();
 
-    if args.opening_search_percentage > 100 {
+    if args.opening_search_percentage >= 100 {
         let mut cmd = Args::command();
         cmd.error(
             ErrorKind::InvalidValue,
@@ -99,8 +99,7 @@ fn main() {
         #[cfg(feature = "audio")]
         Mode::Audio => {
             let mut audio_comparator =
-                audio::AudioComparator::new(&args.files[0], &args.files[1], args.threaded)
-                    .unwrap();
+                audio::AudioComparator::new(&args.files[0], &args.files[1], args.threaded).unwrap();
             audio_comparator
                 .run(
                     args.write_result,

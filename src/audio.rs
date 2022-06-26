@@ -74,6 +74,28 @@ struct OpeningAndEndingInfo {
     dst_ending: Option<(Duration, Duration)>,
 }
 
+impl OpeningAndEndingInfo {
+    #[allow(unused)]
+    fn validate_opening_and_ending_durations(
+        &mut self,
+        minimum_opening_duration: Duration,
+        minimum_ending_duration: Duration,
+    ) {
+        self.src_opening = self
+            .src_opening
+            .filter(|(start, end)| *end - *start >= minimum_opening_duration);
+        self.dst_opening = self
+            .dst_opening
+            .filter(|(start, end)| *end - *start >= minimum_opening_duration);
+        self.src_ending = self
+            .src_ending
+            .filter(|(start, end)| *end - *start >= minimum_ending_duration);
+        self.dst_ending = self
+            .dst_ending
+            .filter(|(start, end)| *end - *start >= minimum_ending_duration);
+    }
+}
+
 /// Compares two audio streams.
 pub struct AudioComparator {
     src_ctx: ffmpeg_next::format::context::Input,
@@ -418,11 +440,12 @@ impl AudioComparator {
         src_hashes: &[(u32, Duration)],
         dst_hashes: &[(u32, Duration)],
         opening_search_percentage: f32,
-        minimum_opening_duration: Duration,
-        minimum_ending_duration: Duration,
     ) -> Option<OpeningAndEndingInfo> {
         let mut heap: ComparatorHeap =
             BinaryHeap::with_capacity(src_hashes.len() + dst_hashes.len());
+
+        let src_partition_idx = (src_hashes.len() as f32 * opening_search_percentage) as usize;
+        let dst_partition_idx = (dst_hashes.len() as f32 * opening_search_percentage) as usize;
 
         // We do a single search for opening and ending in the source and dest.
         //
@@ -446,16 +469,15 @@ impl AudioComparator {
         //                             [ --- dst --- ]
         Self::sliding_window_analyzer(src_hashes, dst_hashes, None, &mut heap, false);
         Self::sliding_window_analyzer(dst_hashes, src_hashes, None, &mut heap, true);
+
         let first = heap.pop();
         let second = heap.pop();
 
         // Next, we'll use the `opening_search_percentage` to determine which is an opening and which is an ending.
-        let src_partition_idx = (src_hashes.len() as f32 * opening_search_percentage) as usize;
-        let dst_partition_idx = (dst_hashes.len() as f32 * opening_search_percentage) as usize;
         let src_max_opening_time = src_hashes[src_partition_idx].1;
         let dst_max_opening_time = dst_hashes[dst_partition_idx].1;
 
-        let mut info = match (first, second) {
+        let info = match (first, second) {
             (Some(f), Some(s)) => {
                 let (src_first_start, src_first_end) = f.src_longest_run;
                 let (dst_first_start, dst_first_end) = f.dst_longest_run;
@@ -543,22 +565,6 @@ impl AudioComparator {
             (None, None) => None,
         };
 
-        // Finally, we validate opening and ending times based on provided input.
-        if let Some(info) = &mut info {
-            info.src_opening = info
-                .src_opening
-                .filter(|(start, end)| *end - *start >= minimum_opening_duration);
-            info.dst_opening = info
-                .dst_opening
-                .filter(|(start, end)| *end - *start >= minimum_opening_duration);
-            info.src_ending = info
-                .src_ending
-                .filter(|(start, end)| *end - *start >= minimum_ending_duration);
-            info.dst_ending = info
-                .dst_ending
-                .filter(|(start, end)| *end - *start >= minimum_ending_duration);
-        }
-
         info
     }
 
@@ -599,64 +605,119 @@ impl AudioComparator {
             &src_frame_hashes,
             &dst_frame_hashes,
             opening_search_percentage,
-            minimum_opening_duration,
-            minimum_ending_duration,
         );
 
         if let Some(info) = info {
-            println!("\nSource: {}\n", self.src_path.display());
-            if let Some(opening) = info.src_opening {
-                println!(
-                    "* Opening - {:?}-{:?}",
-                    util::format_time(opening.0),
-                    util::format_time(opening.1)
-                );
-                if write_result {
-                    util::write_samples_in_range("opening_src.raw", opening, &src_samples);
-                }
-            } else {
-                println!("* Opening - N/A");
-            }
-            if let Some(ending) = info.src_ending {
-                println!(
-                    "* Ending - {:?}-{:?}",
-                    util::format_time(ending.0),
-                    util::format_time(ending.1)
-                );
-                if write_result {
-                    util::write_samples_in_range("ending_src.raw", ending, &src_samples);
-                }
-            } else {
-                println!("* Ending - N/A");
-            }
-
-            println!("\nDestination: {}\n", self.dst_path.display());
-            if let Some(opening) = info.dst_opening {
-                println!(
-                    "* Opening - {:?}-{:?}",
-                    util::format_time(opening.0),
-                    util::format_time(opening.1)
-                );
-                if write_result {
-                    util::write_samples_in_range("opening_dst.raw", opening, &dst_samples);
-                }
-            } else {
-                println!("* Opening: N/A");
-            }
-            if let Some(ending) = info.dst_ending {
-                println!(
-                    "* Ending - {:?}-{:?}",
-                    util::format_time(ending.0),
-                    util::format_time(ending.1)
-                );
-                if write_result {
-                    util::write_samples_in_range("ending_dst.raw", ending, &dst_samples);
-                }
-            } else {
-                println!("* Ending - N/A");
-            }
+            self.display_opening_ending_info(
+                &info,
+                minimum_opening_duration,
+                minimum_ending_duration,
+                &src_samples,
+                &dst_samples,
+                write_result,
+            );
+        } else {
+            eprintln!("No opening or ending found.");
         }
 
         Ok(())
+    }
+
+    fn display_opening_ending_info(
+        &self,
+        info: &OpeningAndEndingInfo,
+        minimum_opening_duration: Duration,
+        minimum_ending_duration: Duration,
+        src_samples: &[(Duration, Vec<u8>)],
+        dst_samples: &[(Duration, Vec<u8>)],
+        write_result: bool,
+    ) {
+        println!("\nSource: {}\n", self.src_path.display());
+        if let Some(opening) = info.src_opening {
+            let (start, end) = opening;
+            if end - start >= minimum_opening_duration {
+                println!(
+                    "* Opening - {:?}-{:?}",
+                    util::format_time(start),
+                    util::format_time(end)
+                );
+            } else {
+                println!(
+                    "* Opening - {:?}-{:?} (too short)",
+                    util::format_time(start),
+                    util::format_time(end)
+                );
+            }
+            if write_result {
+                util::write_samples_in_range("opening_src.raw", opening, &src_samples);
+            }
+        } else {
+            println!("* Opening - N/A");
+        }
+        if let Some(ending) = info.src_ending {
+            let (start, end) = ending;
+            if end - start >= minimum_ending_duration {
+                println!(
+                    "* Ending - {:?}-{:?}",
+                    util::format_time(start),
+                    util::format_time(end)
+                );
+            } else {
+                println!(
+                    "* Ending - {:?}-{:?} (too short)",
+                    util::format_time(start),
+                    util::format_time(end)
+                );
+            }
+            if write_result {
+                util::write_samples_in_range("ending_src.raw", ending, &src_samples);
+            }
+        } else {
+            println!("* Ending - N/A");
+        }
+
+        println!("\nDestination: {}\n", self.dst_path.display());
+        if let Some(opening) = info.dst_opening {
+            let (start, end) = opening;
+            if end - start >= minimum_opening_duration {
+                println!(
+                    "* Opening - {:?}-{:?}",
+                    util::format_time(start),
+                    util::format_time(end)
+                );
+            } else {
+                println!(
+                    "* Opening - {:?}-{:?} (too short)",
+                    util::format_time(start),
+                    util::format_time(end)
+                );
+            }
+            if write_result {
+                util::write_samples_in_range("opening_dst.raw", opening, &dst_samples);
+            }
+        } else {
+            println!("* Opening: N/A");
+        }
+        if let Some(ending) = info.dst_ending {
+            let (start, end) = ending;
+            if end - start >= minimum_ending_duration {
+                println!(
+                    "* Ending - {:?}-{:?}",
+                    util::format_time(start),
+                    util::format_time(end)
+                );
+            } else {
+                println!(
+                    "* Ending - {:?}-{:?} (too short)",
+                    util::format_time(start),
+                    util::format_time(end)
+                );
+            }
+            if write_result {
+                util::write_samples_in_range("ending_dst.raw", ending, &dst_samples);
+            }
+        } else {
+            println!("* Ending - N/A");
+        }
     }
 }
