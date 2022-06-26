@@ -3,9 +3,7 @@ use std::time::Duration;
 
 use clap::{ArgAction, CommandFactory, ErrorKind, Parser};
 
-#[cfg(feature = "audio")]
 mod audio;
-#[cfg(feature = "audio")]
 mod simhash;
 mod util;
 #[cfg(feature = "video")]
@@ -20,21 +18,10 @@ pub enum Error {
     },
 }
 
-#[derive(clap::ValueEnum, Clone, Debug)]
-enum Mode {
-    #[cfg(feature = "audio")]
-    Audio,
-    #[cfg(feature = "video")]
-    Video,
-}
-
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    #[clap(short, long, value_enum, default_value_t = Mode::Audio)]
-    mode: Mode,
-
-    #[clap(name = "FILE", required = true, number_of_values = 2)]
+    #[clap(required = true, help = "Video files to analyze.", min_values = 2)]
     files: Vec<PathBuf>,
 
     #[clap(short, long, default_value = "false")]
@@ -80,7 +67,6 @@ fn main() {
 
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
-    #[cfg(feature = "ffmpeg-next")]
     ffmpeg_next::init().unwrap();
 
     let args = Args::parse();
@@ -95,25 +81,14 @@ fn main() {
     }
     let opening_search_percentage = args.opening_search_percentage as f32 / 100.0;
 
-    match args.mode {
-        #[cfg(feature = "audio")]
-        Mode::Audio => {
-            let mut audio_comparator =
-                audio::AudioComparator::new(&args.files[0], &args.files[1], args.threaded).unwrap();
-            audio_comparator
-                .run(
-                    args.write_result,
-                    opening_search_percentage,
-                    Duration::from_secs(args.min_opening_duration as u64),
-                    Duration::from_secs(args.min_ending_duration as u64),
-                )
-                .unwrap();
-        }
-        #[cfg(feature = "video")]
-        Mode::Video => {
-            let mut video_comparator =
-                video::VideoComparator::new(&args.files[0], &args.files[1]).unwrap();
-            video_comparator.compare(1000).unwrap();
-        }
-    }
+    let mut audio_comparator =
+        audio::AudioComparator::new(&args.files[0], &args.files[1], args.threaded).unwrap();
+    audio_comparator
+        .run(
+            args.write_result,
+            opening_search_percentage,
+            Duration::from_secs(args.min_opening_duration as u64),
+            Duration::from_secs(args.min_ending_duration as u64),
+        )
+        .unwrap();
 }

@@ -23,7 +23,9 @@ struct VideoDecoder {
 impl VideoDecoder {
     fn build_threading_config() -> ffmpeg_next::codec::threading::Config {
         let mut config = ffmpeg_next::codec::threading::Config::default();
-        config.count = num_cpus::get();
+        config.count = std::thread::available_parallelism()
+            .expect("unable to determine available parallelism")
+            .get();
         config.kind = ffmpeg_next::codec::threading::Type::Frame;
         config
     }
