@@ -157,6 +157,7 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 [[package]]
 name = "chromaprint"
 version = "0.1.0"
+source = "git+https://github.com/aksiksi/chromaprint#bf3b5f46da2b1e28a06a9e0dd401911b07acb7c3"
 dependencies = [
  "chromaprint-sys",
  "thiserror",
@@ -165,6 +166,7 @@ dependencies = [
 [[package]]
 name = "chromaprint-sys"
 version = "1.5.0"
+source = "git+https://github.com/aksiksi/chromaprint-sys#e5a3857020e9e10af79be2f099691fc4569f6f74"
 dependencies = [
  "bindgen 0.60.1",
  "cfg-if",
