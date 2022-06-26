@@ -471,6 +471,8 @@ impl AudioComparator {
         Self::sliding_window_analyzer(src_hashes, dst_hashes, None, &mut heap, false);
         Self::sliding_window_analyzer(dst_hashes, src_hashes, None, &mut heap, true);
 
+        tracing::info!(heap_size = heap.len(), "finished sliding window analysis");
+
         let first = heap.pop();
         let second = heap.pop();
 
@@ -485,28 +487,33 @@ impl AudioComparator {
                 let (src_second_start, src_second_end) = s.src_longest_run;
                 let (dst_second_start, dst_second_end) = s.dst_longest_run;
 
-                let (src_opening, src_ending) = if src_first_end < src_max_opening_time {
-                    (
-                        Some((src_first_start, src_first_end)),
-                        Some((src_second_start, src_second_end)),
-                    )
+                let src_opening = if src_first_end < src_max_opening_time {
+                    Some((src_first_start, src_first_end))
+                } else if src_second_end < src_max_opening_time {
+                    Some((src_second_start, src_second_end))
                 } else {
-                    (
-                        Some((src_second_start, src_second_end)),
-                        Some((src_first_start, src_first_end)),
-                    )
+                    None
                 };
-
-                let (dst_opening, dst_ending) = if dst_first_end < dst_max_opening_time {
-                    (
-                        Some((dst_first_start, dst_first_end)),
-                        Some((dst_second_start, dst_second_end)),
-                    )
+                let src_ending = if src_first_end >= src_max_opening_time {
+                    Some((src_first_start, src_first_end))
+                } else if src_second_end >= src_max_opening_time {
+                    Some((src_second_start, src_second_end))
                 } else {
-                    (
-                        Some((dst_second_start, dst_second_end)),
-                        Some((dst_first_start, dst_first_end)),
-                    )
+                    None
+                };
+                let dst_opening = if dst_first_end < dst_max_opening_time {
+                    Some((dst_first_start, dst_first_end))
+                } else if dst_second_end < dst_max_opening_time {
+                    Some((dst_second_start, dst_second_end))
+                } else {
+                    None
+                };
+                let dst_ending = if dst_first_end >= dst_max_opening_time {
+                    Some((dst_first_start, dst_first_end))
+                } else if dst_second_end >= dst_max_opening_time {
+                    Some((dst_second_start, dst_second_end))
+                } else {
+                    None
                 };
 
                 Some(OpeningAndEndingInfo {
@@ -659,11 +666,12 @@ impl AudioComparator {
                     util::format_time(end)
                 );
             } else {
-                println!(
+                tracing::debug!(
                     "* Opening - {:?}-{:?} (too short)",
                     util::format_time(start),
                     util::format_time(end)
                 );
+                println!("* Opening - N/A");
             }
             if write_result {
                 util::write_samples_in_range("opening_src.raw", opening, &src_samples);
@@ -680,11 +688,12 @@ impl AudioComparator {
                     util::format_time(end)
                 );
             } else {
-                println!(
+                tracing::debug!(
                     "* Ending - {:?}-{:?} (too short)",
                     util::format_time(start),
                     util::format_time(end)
                 );
+                println!("* Ending - N/A");
             }
             if write_result {
                 util::write_samples_in_range("ending_src.raw", ending, &src_samples);
@@ -703,11 +712,12 @@ impl AudioComparator {
                     util::format_time(end)
                 );
             } else {
-                println!(
+                tracing::debug!(
                     "* Opening - {:?}-{:?} (too short)",
                     util::format_time(start),
                     util::format_time(end)
                 );
+                println!("* Opening: N/A");
             }
             if write_result {
                 util::write_samples_in_range("opening_dst.raw", opening, &dst_samples);
@@ -724,11 +734,12 @@ impl AudioComparator {
                     util::format_time(end)
                 );
             } else {
-                println!(
+                tracing::debug!(
                     "* Ending - {:?}-{:?} (too short)",
                     util::format_time(start),
                     util::format_time(end)
                 );
+                println!("* Ending - N/A");
             }
             if write_result {
                 util::write_samples_in_range("ending_dst.raw", ending, &dst_samples);
