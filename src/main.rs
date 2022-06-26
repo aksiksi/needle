@@ -34,9 +34,6 @@ struct Args {
     #[clap(required = true, help = "Video files or directories to analyze.")]
     videos: Vec<PathBuf>,
 
-    #[clap(short, long, default_value = "false")]
-    write_result: bool,
-
     #[clap(
         long,
         default_value = "0.3",
@@ -76,6 +73,15 @@ struct Args {
         help = "Enable multi-threaded audio decoding in ffmpeg. This will create NUM_CPU threads."
     )]
     threaded: bool,
+
+    #[clap(
+        short,
+        long,
+        default_value = "false",
+        action(ArgAction::SetTrue),
+        help = "Write detected raw audio clips to the current directory. Useful for debugging."
+    )]
+    write_result: bool,
 }
 
 fn main() {
