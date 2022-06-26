@@ -3,7 +3,7 @@ extern crate ffmpeg_next;
 
 use std::collections::BinaryHeap;
 use std::fmt::Display;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::simhash::simhash32;
@@ -50,42 +50,56 @@ impl AudioDecoder {
 
 type ComparatorHeap = BinaryHeap<ComparatorHeapEntry>;
 
-#[derive(Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 struct ComparatorHeapEntry {
-    // priority: number of hits * max run length
-    priority: usize,
+    score: usize,
     src_longest_run: (Duration, Duration),
     dst_longest_run: (Duration, Duration),
-    hash_data: Vec<(Duration, Duration, u32)>,
 }
 
 impl Display for ComparatorHeapEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "priority: {}, src_longest_run: {:?}, dst_longest_run: {:?}",
-            self.priority, self.src_longest_run, self.dst_longest_run
+            "score: {}, src_longest_run: {:?}, dst_longest_run: {:?}",
+            self.score, self.src_longest_run, self.dst_longest_run
         )
     }
+}
+
+struct OpeningAndEndingInfo {
+    src_opening: Option<(Duration, Duration)>,
+    src_ending: Option<(Duration, Duration)>,
+    dst_opening: Option<(Duration, Duration)>,
+    dst_ending: Option<(Duration, Duration)>,
 }
 
 /// Compares two audio streams.
 pub struct AudioComparator {
     src_ctx: ffmpeg_next::format::context::Input,
+    src_path: PathBuf,
     dst_ctx: ffmpeg_next::format::context::Input,
+    dst_path: PathBuf,
+    threading: bool,
 }
 
 impl AudioComparator {
     const CHROMAPRINT_MATCH_THRESHOLD: u32 = 10;
 
-    pub fn new<P, Q>(src_path: P, dst_path: Q) -> anyhow::Result<Self>
+    pub fn new<P, Q>(src_path: P, dst_path: Q, threading: bool) -> anyhow::Result<Self>
     where
         P: AsRef<Path>,
         Q: AsRef<Path>,
     {
         let src_ctx = ffmpeg_next::format::input(&src_path)?;
         let dst_ctx = ffmpeg_next::format::input(&dst_path)?;
-        Ok(Self { src_ctx, dst_ctx })
+        Ok(Self {
+            src_ctx,
+            dst_ctx,
+            src_path: src_path.as_ref().to_path_buf(),
+            dst_path: dst_path.as_ref().to_path_buf(),
+            threading,
+        })
     }
 
     fn src_stream(&self) -> ffmpeg_next::format::stream::Stream {
@@ -103,11 +117,11 @@ impl AudioComparator {
     }
 
     fn src_decoder(&mut self) -> anyhow::Result<AudioDecoder> {
-        AudioDecoder::from_stream(self.src_stream(), false)
+        AudioDecoder::from_stream(self.src_stream(), self.threading)
     }
 
     fn dst_decoder(&mut self) -> anyhow::Result<AudioDecoder> {
-        AudioDecoder::from_stream(self.dst_stream(), false)
+        AudioDecoder::from_stream(self.dst_stream(), self.threading)
     }
 
     // Returns the actual presentation timestamp for this frame (i.e., timebase agnostic).
@@ -342,9 +356,7 @@ impl AudioComparator {
             let mut src_longest_run = Default::default();
             let mut dst_longest_run = Default::default();
 
-            let mut hash_data = Vec::new();
-
-            for ((i, (src_hash, src_ts)), (j, (dst_hash, dst_ts))) in src_hashes
+            for ((i, (src_hash, _)), (j, (dst_hash, _))) in src_hashes
                 .iter()
                 .enumerate()
                 .zip(dst_hashes.iter().enumerate())
@@ -373,47 +385,49 @@ impl AudioComparator {
                         );
                     }
                 }
-
-                if !reverse {
-                    hash_data.push((*src_ts, *dst_ts, d));
-                } else {
-                    hash_data.push((*dst_ts, *src_ts, d));
-                }
             }
 
-            let priority = max_run_len;
+            let score = max_run_len;
 
             let entry = if !reverse {
                 ComparatorHeapEntry {
-                    priority,
+                    score,
                     src_longest_run,
                     dst_longest_run,
-                    hash_data,
                 }
             } else {
                 ComparatorHeapEntry {
-                    priority,
+                    score,
                     dst_longest_run: src_longest_run,
                     src_longest_run: dst_longest_run,
-                    hash_data,
                 }
             };
 
-            if priority > 0 {
-                heap.push(entry);
+            if score > 0 {
+                // Add the first entry or the current if it is better than the best tracked entry.
+                if heap.len() == 0 || score > heap.peek().unwrap().score {
+                    heap.push(entry);
+                }
             }
 
             n += 1;
         }
     }
 
-    fn find_best_match(
+    fn find_opening_and_ending(
         src_hashes: &[(u32, Duration)],
         dst_hashes: &[(u32, Duration)],
-    ) -> Option<ComparatorHeapEntry> {
+        opening_search_percentage: f32,
+        minimum_opening_duration: Duration,
+        minimum_ending_duration: Duration,
+    ) -> Option<OpeningAndEndingInfo> {
         let mut heap: ComparatorHeap =
             BinaryHeap::with_capacity(src_hashes.len() + dst_hashes.len());
 
+        // We do a single search for opening and ending in the source and dest.
+        //
+        // Intuition:
+        //
         // (1)
         //               [ --- src --- ]
         // [ --- dst --- ]
@@ -432,11 +446,129 @@ impl AudioComparator {
         //                             [ --- dst --- ]
         Self::sliding_window_analyzer(src_hashes, dst_hashes, None, &mut heap, false);
         Self::sliding_window_analyzer(dst_hashes, src_hashes, None, &mut heap, true);
+        let first = heap.pop();
+        let second = heap.pop();
 
-        heap.pop()
+        // Next, we'll use the `opening_search_percentage` to determine which is an opening and which is an ending.
+        let src_partition_idx = (src_hashes.len() as f32 * opening_search_percentage) as usize;
+        let dst_partition_idx = (dst_hashes.len() as f32 * opening_search_percentage) as usize;
+        let src_max_opening_time = src_hashes[src_partition_idx].1;
+        let dst_max_opening_time = dst_hashes[dst_partition_idx].1;
+
+        let mut info = match (first, second) {
+            (Some(f), Some(s)) => {
+                let (src_first_start, src_first_end) = f.src_longest_run;
+                let (dst_first_start, dst_first_end) = f.dst_longest_run;
+                let (src_second_start, src_second_end) = s.src_longest_run;
+                let (dst_second_start, dst_second_end) = s.dst_longest_run;
+
+                let (src_opening, src_ending) = if src_first_end < src_max_opening_time {
+                    (
+                        Some((src_first_start, src_first_end)),
+                        Some((src_second_start, src_second_end)),
+                    )
+                } else {
+                    (
+                        Some((src_second_start, src_second_end)),
+                        Some((src_first_start, src_first_end)),
+                    )
+                };
+
+                let (dst_opening, dst_ending) = if dst_first_end < dst_max_opening_time {
+                    (
+                        Some((dst_first_start, dst_first_end)),
+                        Some((dst_second_start, dst_second_end)),
+                    )
+                } else {
+                    (
+                        Some((dst_second_start, dst_second_end)),
+                        Some((dst_first_start, dst_first_end)),
+                    )
+                };
+
+                Some(OpeningAndEndingInfo {
+                    src_opening,
+                    src_ending,
+                    dst_opening,
+                    dst_ending,
+                })
+            }
+            (Some(f), None) => {
+                let (src_first_start, src_first_end) = f.src_longest_run;
+                let (dst_first_start, dst_first_end) = f.dst_longest_run;
+
+                let (src_opening, src_ending) = if src_first_end < src_max_opening_time {
+                    (Some((src_first_start, src_first_end)), None)
+                } else {
+                    (None, Some((src_first_start, src_first_end)))
+                };
+
+                let (dst_opening, dst_ending) = if dst_first_end < dst_max_opening_time {
+                    (Some((dst_first_start, dst_first_end)), None)
+                } else {
+                    (None, Some((dst_first_start, dst_first_end)))
+                };
+
+                Some(OpeningAndEndingInfo {
+                    src_opening,
+                    src_ending,
+                    dst_opening,
+                    dst_ending,
+                })
+            }
+            (None, Some(s)) => {
+                let (src_second_start, src_second_end) = s.src_longest_run;
+                let (dst_second_start, dst_second_end) = s.dst_longest_run;
+
+                let (src_opening, src_ending) = if src_second_end < src_max_opening_time {
+                    (Some((src_second_start, src_second_end)), None)
+                } else {
+                    (None, Some((src_second_start, src_second_end)))
+                };
+
+                let (dst_opening, dst_ending) = if dst_second_end < dst_max_opening_time {
+                    (Some((dst_second_start, dst_second_end)), None)
+                } else {
+                    (None, Some((dst_second_start, dst_second_end)))
+                };
+
+                Some(OpeningAndEndingInfo {
+                    src_opening,
+                    src_ending,
+                    dst_opening,
+                    dst_ending,
+                })
+            }
+
+            (None, None) => None,
+        };
+
+        // Finally, we validate opening and ending times based on provided input.
+        if let Some(info) = &mut info {
+            info.src_opening = info
+                .src_opening
+                .filter(|(start, end)| *end - *start >= minimum_opening_duration);
+            info.dst_opening = info
+                .dst_opening
+                .filter(|(start, end)| *end - *start >= minimum_opening_duration);
+            info.src_ending = info
+                .src_ending
+                .filter(|(start, end)| *end - *start >= minimum_ending_duration);
+            info.dst_ending = info
+                .dst_ending
+                .filter(|(start, end)| *end - *start >= minimum_ending_duration);
+        }
+
+        info
     }
 
-    pub fn run(&mut self, write_result: bool) -> anyhow::Result<()> {
+    pub fn run(
+        &mut self,
+        write_result: bool,
+        opening_search_percentage: f32,
+        minimum_opening_duration: Duration,
+        minimum_ending_duration: Duration,
+    ) -> anyhow::Result<()> {
         let (src_stream, dst_stream) = (self.src_stream(), self.dst_stream());
         let src_stream_idx = src_stream.index();
         let dst_stream_idx = dst_stream.index();
@@ -463,57 +595,65 @@ impl AudioComparator {
             write_result,
         );
 
-        // We partition the hashes into opening and ending. The assumption is that the opening exists in the
-        // first 75% of the video and the ending exists in the last 25%.
-        // let src_partition_idx = (src_frame_hashes.len() as f32 * 0.75) as usize;
-        // let dst_partition_idx = (dst_frame_hashes.len() as f32 * 0.75) as usize;
-        let src_partition_idx = src_frame_hashes.len();
-        let dst_partition_idx = dst_frame_hashes.len();
-        let (src_opening_hashes, src_ending_hashes) = src_frame_hashes.split_at(src_partition_idx);
-        let (dst_opening_hashes, dst_ending_hashes) = dst_frame_hashes.split_at(dst_partition_idx);
+        let info = Self::find_opening_and_ending(
+            &src_frame_hashes,
+            &dst_frame_hashes,
+            opening_search_percentage,
+            minimum_opening_duration,
+            minimum_ending_duration,
+        );
 
-        if let Some(opening) = Self::find_best_match(src_opening_hashes, dst_opening_hashes) {
-            println!(
-                "Opening - source: {:?}-{:?}, destination: {:?}-{:?}",
-                util::format_time(opening.src_longest_run.0),
-                util::format_time(opening.src_longest_run.1),
-                util::format_time(opening.dst_longest_run.0),
-                util::format_time(opening.dst_longest_run.1),
-            );
-            if write_result {
-                util::write_samples_in_range(
-                    "opening_src.raw",
-                    opening.src_longest_run,
-                    &src_samples,
+        if let Some(info) = info {
+            println!("\nSource: {}\n", self.src_path.display());
+            if let Some(opening) = info.src_opening {
+                println!(
+                    "* Opening - {:?}-{:?}",
+                    util::format_time(opening.0),
+                    util::format_time(opening.1)
                 );
-                util::write_samples_in_range(
-                    "opening_dst.raw",
-                    opening.dst_longest_run,
-                    &dst_samples,
-                );
+                if write_result {
+                    util::write_samples_in_range("opening_src.raw", opening, &src_samples);
+                }
+            } else {
+                println!("* Opening - N/A");
             }
-        }
-
-        if let Some(ending) = Self::find_best_match(src_ending_hashes, dst_ending_hashes) {
-            println!(
-                "Ending - source: {:?}-{:?}, destination: {:?}-{:?}",
-                util::format_time(ending.src_longest_run.0),
-                util::format_time(ending.src_longest_run.1),
-                util::format_time(ending.dst_longest_run.0),
-                util::format_time(ending.dst_longest_run.1),
-            );
-
-            if write_result {
-                util::write_samples_in_range(
-                    "ending_src.raw",
-                    ending.src_longest_run,
-                    &src_samples,
+            if let Some(ending) = info.src_ending {
+                println!(
+                    "* Ending - {:?}-{:?}",
+                    util::format_time(ending.0),
+                    util::format_time(ending.1)
                 );
-                util::write_samples_in_range(
-                    "ending_dst.raw",
-                    ending.dst_longest_run,
-                    &dst_samples,
+                if write_result {
+                    util::write_samples_in_range("ending_src.raw", ending, &src_samples);
+                }
+            } else {
+                println!("* Ending - N/A");
+            }
+
+            println!("\nDestination: {}\n", self.dst_path.display());
+            if let Some(opening) = info.dst_opening {
+                println!(
+                    "* Opening - {:?}-{:?}",
+                    util::format_time(opening.0),
+                    util::format_time(opening.1)
                 );
+                if write_result {
+                    util::write_samples_in_range("opening_dst.raw", opening, &dst_samples);
+                }
+            } else {
+                println!("* Opening: N/A");
+            }
+            if let Some(ending) = info.dst_ending {
+                println!(
+                    "* Ending - {:?}-{:?}",
+                    util::format_time(ending.0),
+                    util::format_time(ending.1)
+                );
+                if write_result {
+                    util::write_samples_in_range("ending_dst.raw", ending, &dst_samples);
+                }
+            } else {
+                println!("* Ending - N/A");
             }
         }
 

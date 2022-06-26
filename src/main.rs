@@ -1,15 +1,15 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use clap::Parser;
+use clap::{ArgAction, CommandFactory, ErrorKind, Parser};
 
 #[cfg(feature = "audio")]
 mod audio;
 #[cfg(feature = "audio")]
 mod simhash;
+mod util;
 #[cfg(feature = "video")]
 mod video;
-mod util;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -39,6 +39,38 @@ struct Args {
 
     #[clap(short, long, default_value = "false")]
     write_result: bool,
+
+    #[clap(
+        long,
+        default_value = "75",
+        value_parser = clap::value_parser!(u8),
+        help = "The analyzer will only look for the opening in the first percentage of the video and the ending in the remaining percentage. If this is set to 100, the opening and ending will be searched for in the entire video."
+    )]
+    opening_search_percentage: u8,
+
+    #[clap(
+        long,
+        default_value = "10",
+        value_parser = clap::value_parser!(u16),
+        help = "Minimum opening duration, in seconds. Setting a value that is close to the actual length helps reduce false positives (i.e., detecting an opening when there isn't one)."
+    )]
+    min_opening_duration: u16,
+
+    #[clap(
+        long,
+        default_value = "10",
+        value_parser = clap::value_parser!(u16),
+        help = "Minimum ending duration, in seconds. Setting a value that is close to the actual length helps reduce false positives (i.e., detecting an ending when there isn't one)."
+    )]
+    min_ending_duration: u16,
+
+    #[clap(
+        long,
+        default_value = "false",
+        action(ArgAction::SetTrue),
+        help = "Enable multi-threaded audio decoding in ffmpeg. This will create NUM_CPU threads."
+    )]
+    threaded: bool,
 }
 
 fn main() {
@@ -53,15 +85,35 @@ fn main() {
 
     let args = Args::parse();
 
+    if args.opening_search_percentage > 100 {
+        let mut cmd = Args::command();
+        cmd.error(
+            ErrorKind::InvalidValue,
+            "opening_search_percentage must be less than 100",
+        )
+        .exit();
+    }
+    let opening_search_percentage = args.opening_search_percentage as f32 / 100.0;
+
     match args.mode {
         #[cfg(feature = "audio")]
         Mode::Audio => {
-            let mut audio_comparator = audio::AudioComparator::new(&args.files[0], &args.files[1]).unwrap();
-            audio_comparator.run(args.write_result).unwrap();
+            let mut audio_comparator =
+                audio::AudioComparator::new(&args.files[0], &args.files[1], args.threaded)
+                    .unwrap();
+            audio_comparator
+                .run(
+                    args.write_result,
+                    opening_search_percentage,
+                    Duration::from_secs(args.min_opening_duration as u64),
+                    Duration::from_secs(args.min_ending_duration as u64),
+                )
+                .unwrap();
         }
         #[cfg(feature = "video")]
         Mode::Video => {
-            let mut video_comparator = video::VideoComparator::new(&args.files[0], &args.files[1]).unwrap();
+            let mut video_comparator =
+                video::VideoComparator::new(&args.files[0], &args.files[1]).unwrap();
             video_comparator.compare(1000).unwrap();
         }
     }
