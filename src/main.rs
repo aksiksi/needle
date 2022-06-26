@@ -39,6 +39,14 @@ struct Args {
 
     #[clap(
         long,
+        default_value = "0.3",
+        value_parser = clap::value_parser!(f32),
+        help = "Period between hashes, in seconds. For example, if set to 0.3, a hash will be generated for every 300 ms of audio. Lowering this number can improve the accuracy of the result, at the cost of performance. The default aims to strike a balance between accuracy and performance."
+    )]
+    hash_period: f32,
+
+    #[clap(
+        long,
         default_value = "75",
         value_parser = clap::value_parser!(u8),
         help = "Specifies which portion of the video the opening and ending should be in. For example, if set to 75%, a match found in the first 75% of the video will be considered the opening, while a match in the last 25% will be considered the ending."
@@ -91,6 +99,15 @@ fn main() {
     }
     let opening_search_percentage = args.opening_search_percentage as f32 / 100.0;
 
+    if args.hash_period <= 0.0 {
+        let mut cmd = Args::command();
+        cmd.error(
+            ErrorKind::InvalidValue,
+            "hash_period must be a positive number",
+        )
+        .exit();
+    }
+
     // Validate all paths.
     for path in &args.videos {
         if !path.exists() {
@@ -128,7 +145,10 @@ fn main() {
         let mut cmd = Args::command();
         cmd.error(
             ErrorKind::InvalidValue,
-            format!("need at least 2 valid video files, but only found {} in provided video paths", valid_video_files.len()),
+            format!(
+                "need at least 2 valid video files, but only found {} in provided video paths",
+                valid_video_files.len()
+            ),
         )
         .exit();
     }
@@ -140,6 +160,7 @@ fn main() {
                     .unwrap();
             audio_comparator
                 .run(
+                    args.hash_period,
                     args.write_result,
                     opening_search_percentage,
                     Duration::from_secs(args.min_opening_duration as u64),

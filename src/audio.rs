@@ -232,6 +232,7 @@ impl AudioComparator {
         decoder: &mut AudioDecoder,
         stream_idx: usize,
         hash_duration: Option<Duration>,
+        hash_period: Option<f32>,
         duration: Option<Duration>,
         start_ts: Option<Duration>,
         write_samples: bool,
@@ -252,16 +253,13 @@ impl AudioComparator {
         let mut frame_resampled = ffmpeg_next::frame::Audio::empty();
 
         // Setup the audio fingerprinter
-        //
-        // We set the hash resolution to 1/10th of the provided hash duration. Internally,
-        // we will have 10 chromaprint instances.
-        let n = 10;
-        let hash_duration = hash_duration.unwrap_or(Duration::from_secs(1));
-        let hash_resolution = hash_duration.div_f32(n as f32);
+        let hash_duration = hash_duration.unwrap_or(Duration::from_secs(3));
+        let hash_period = hash_period.unwrap_or(1.0);
+        let n = f32::ceil(hash_duration.as_secs_f32() / hash_period) as usize;
         let mut fingerprinter = chromaprint::DelayedFingerprinter::new(
             n,
             hash_duration,
-            hash_resolution,
+            Duration::from_secs_f32(hash_period),
             None,
             2,
             None,
@@ -580,6 +578,7 @@ impl AudioComparator {
 
     pub fn run(
         &mut self,
+        hash_period: f32,
         write_result: bool,
         opening_search_percentage: f32,
         minimum_opening_duration: Duration,
@@ -601,6 +600,7 @@ impl AudioComparator {
             &mut src_decoder,
             src_stream_idx,
             Some(Duration::from_secs(3)),
+            Some(hash_period),
             None,
             None,
             write_result,
@@ -616,6 +616,7 @@ impl AudioComparator {
             &mut dst_decoder,
             dst_stream_idx,
             Some(Duration::from_secs(3)),
+            Some(hash_period),
             None,
             None,
             write_result,
