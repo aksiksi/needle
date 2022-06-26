@@ -67,6 +67,7 @@ impl Display for ComparatorHeapEntry {
     }
 }
 
+#[derive(Debug)]
 struct OpeningAndEndingInfo {
     src_opening: Option<(Duration, Duration)>,
     src_ending: Option<(Duration, Duration)>,
@@ -233,7 +234,8 @@ impl AudioComparator {
         start_ts: Option<Duration>,
         write_samples: bool,
     ) -> (Vec<(u32, Duration)>, Vec<(Duration, Vec<u8>)>) {
-        let _g = tracing::span!(tracing::Level::TRACE, "process_frames");
+        let span = tracing::span!(tracing::Level::TRACE, "process_frames");
+        let _enter = span.enter();
 
         // If a start time is provided, seek to the correct place in the stream.
         if let Some(start_ts) = start_ts {
@@ -426,10 +428,7 @@ impl AudioComparator {
             };
 
             if score > 0 {
-                // Add the first entry or the current if it is better than the best tracked entry.
-                if heap.len() == 0 || score > heap.peek().unwrap().score {
-                    heap.push(entry);
-                }
+                heap.push(entry);
             }
 
             n += 1;
@@ -441,6 +440,8 @@ impl AudioComparator {
         dst_hashes: &[(u32, Duration)],
         opening_search_percentage: f32,
     ) -> Option<OpeningAndEndingInfo> {
+        let _g = tracing::span!(tracing::Level::TRACE, "find_opening_and_ending");
+
         let mut heap: ComparatorHeap =
             BinaryHeap::with_capacity(src_hashes.len() + dst_hashes.len());
 
@@ -575,6 +576,9 @@ impl AudioComparator {
         minimum_opening_duration: Duration,
         minimum_ending_duration: Duration,
     ) -> anyhow::Result<()> {
+        let span = tracing::span!(tracing::Level::TRACE, "run");
+        let _enter = span.enter();
+
         let (src_stream, dst_stream) = (self.src_stream(), self.dst_stream());
         let src_stream_idx = src_stream.index();
         let dst_stream_idx = dst_stream.index();
@@ -582,6 +586,7 @@ impl AudioComparator {
         let mut dst_decoder = self.dst_decoder()?;
 
         // Compute hashes for both files in 3 second chunks.
+        tracing::info!("starting frame processing for source");
         let (src_frame_hashes, src_samples) = Self::process_frames(
             &mut self.src_ctx,
             &mut src_decoder,
@@ -591,6 +596,12 @@ impl AudioComparator {
             None,
             write_result,
         );
+        tracing::info!(
+            num_hashes = src_frame_hashes.len(),
+            "completed frame processing for source"
+        );
+
+        tracing::info!("starting frame processing for dest");
         let (dst_frame_hashes, dst_samples) = Self::process_frames(
             &mut self.dst_ctx,
             &mut dst_decoder,
@@ -600,12 +611,18 @@ impl AudioComparator {
             None,
             write_result,
         );
+        tracing::info!(
+            num_hashes = dst_frame_hashes.len(),
+            "completed frame processing for dest"
+        );
 
+        tracing::info!("starting search for opening and ending");
         let info = Self::find_opening_and_ending(
             &src_frame_hashes,
             &dst_frame_hashes,
             opening_search_percentage,
         );
+        tracing::info!("finished search for opening and ending");
 
         if let Some(info) = info {
             self.display_opening_ending_info(
