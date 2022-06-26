@@ -4,7 +4,33 @@ A tool that finds a needle (opening/intro and ending/credits) in a haystack (TV 
 
 ## Build
 
+### Linux
+
+Install the `ffmpeg` dev libraries:
+
+```
+sudo apt install \
+libavutil-dev \
+libavformat-dev \
+libswresample-dev \
+libavcodec-dev \
+libavfilter-dev \
+libavdevice-dev
+```
+
+### macOS
+
+Install `ffmpeg`:
+
+```
+brew install ffmpeg
+```
+
 ### Windows
 
-Static linking does not work on Windows due to issues with static linking `ffmpeg` using vcpkg. See: https://github.com/microsoft/vcpkg/issues/9571
+1. Install `cargo-vcpkg`: `cargo install cargo-vcpkg`
+2. Install `vcpkg` deps: `cargo vcpkg build`
+3. Build: `cargo build`
+
+**Note:** Static linking does not work on Windows due to issues with static linking `ffmpeg` using vcpkg. See: https://github.com/microsoft/vcpkg/issues/9571
 
