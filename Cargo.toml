@@ -18,3 +18,4 @@ clap = { version = "3", features = ["derive"] }
 [features]
 default = []
 video = ["blockhash", "image"]
+static = ["chromaprint/static", "ffmpeg-next/static"]
