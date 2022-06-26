@@ -9,6 +9,13 @@ mod util;
 #[cfg(feature = "video")]
 mod video;
 
+#[derive(clap::ValueEnum, Clone, Debug)]
+enum Mode {
+    Audio,
+    #[cfg(feature = "video")]
+    Video,
+}
+
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("invalid timestamp for seek: requested={requested:?} duration={duration:?}")]
@@ -21,6 +28,9 @@ pub enum Error {
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
+    #[clap(short, long, value_enum, default_value_t = Mode::Audio, help = "Analysis mode. The default mode is audio, which uses audio streams to find potential openings and endings. Video mode is less accurate and _much_ slower, but is useful if no audio stream is available.")]
+    mode: Mode,
+
     #[clap(required = true, help = "Video files to analyze.", min_values = 2)]
     files: Vec<PathBuf>,
 
@@ -81,14 +91,24 @@ fn main() {
     }
     let opening_search_percentage = args.opening_search_percentage as f32 / 100.0;
 
-    let mut audio_comparator =
-        audio::AudioComparator::new(&args.files[0], &args.files[1], args.threaded).unwrap();
-    audio_comparator
-        .run(
-            args.write_result,
-            opening_search_percentage,
-            Duration::from_secs(args.min_opening_duration as u64),
-            Duration::from_secs(args.min_ending_duration as u64),
-        )
-        .unwrap();
+    match args.mode {
+        Mode::Audio => {
+            let mut audio_comparator =
+                audio::AudioComparator::new(&args.files[0], &args.files[1], args.threaded).unwrap();
+            audio_comparator
+                .run(
+                    args.write_result,
+                    opening_search_percentage,
+                    Duration::from_secs(args.min_opening_duration as u64),
+                    Duration::from_secs(args.min_ending_duration as u64),
+                )
+                .unwrap();
+        }
+        #[cfg(feature = "video")]
+        Mode::Video => {
+            let mut video_comparator =
+                video::VideoComparator::new(&args.files[0], &args.files[1]).unwrap();
+            video_comparator.compare(1000).unwrap();
+        }
+    }
 }
