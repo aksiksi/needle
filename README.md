@@ -30,8 +30,29 @@ brew install ffmpeg
 
 1. Install `cargo-vcpkg`: `cargo install cargo-vcpkg`
 2. Install `vcpkg` deps: `cargo vcpkg build`
-3. Add `vcpkg` bin directory to path (for DLL lookup): `$VCPKG_ROOT\installed\x64-windows\bin`
-4. Build and run: `cargo run`
+3. Add additional libs to rustcflags:
 
-**Note:** Static linking does not work on Windows due to issues with static linking `ffmpeg` using vcpkg. See: https://github.com/microsoft/vcpkg/issues/9571
+```toml
+# ~/.cargo/config.toml
+
+[target.x86_64-pc-windows-msvc]
+# ffmpeg static build
+rustflags = [
+    "-C", "link-arg=strmiids.lib",
+    "-C", "link-arg=mf.lib",
+    "-C", "link-arg=mfplat.lib",
+    "-C", "link-arg=mfplay.lib",
+    "-C", "link-arg=mfreadwrite.lib",
+    "-C", "link-arg=mfuuid.lib",
+    "-C", "link-arg=dxva2.lib",
+    "-C", "link-arg=evr.lib",
+    "-C", "link-arg=vfw32.lib",
+    "-C", "link-arg=shlwapi.lib",
+    "-C", "link-arg=oleaut32.lib"
+]
+```
+
+4. Build: `cargo build --features static`
+
+**Note:** The steps above assume a *static* build.
 

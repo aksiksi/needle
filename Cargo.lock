@@ -166,7 +166,7 @@ dependencies = [
 [[package]]
 name = "chromaprint-sys"
 version = "1.5.0"
-source = "git+https://github.com/aksiksi/chromaprint-sys#60fed6c606a6e4615f71518b935ba66f3f40457a"
+source = "git+https://github.com/aksiksi/chromaprint-sys#d309af8fec0a54f25c32dbc37a5a71185b7c9e99"
 dependencies = [
  "bindgen 0.60.1",
  "cfg-if",
