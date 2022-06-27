@@ -6,9 +6,9 @@ use std::fmt::Display;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use super::simhash::simhash32;
-use super::util;
-use super::Error;
+use crate::simhash::simhash32;
+use crate::util;
+use crate::Error;
 
 /// Wraps the `ffmpeg` video decoder.
 struct AudioDecoder {
