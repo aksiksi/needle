@@ -10,6 +10,43 @@ use crate::simhash::simhash32;
 use crate::util;
 use crate::Error;
 
+pub struct Backend {
+    ctx: ffmpeg_next::format::context::Input,
+    path: PathBuf,
+    stream: usize,
+}
+
+impl Backend {
+    fn decoder(&self) -> AudioDecoder {}
+}
+
+impl super::Backend for Backend {
+    fn new(path: impl AsRef<Path>) -> super::Result<Self> {
+        let path = path.as_ref().to_owned();
+        let ctx = ffmpeg_next::format::input(&path)?;
+        Ok(Backend {
+            ctx,
+            path,
+            stream: 0,
+        })
+    }
+
+    fn info(&self) -> super::Result<super::MediaInfo> {
+        let time_base: f64 = self.ctx.stream(0).unwrap().time_base().into();
+        Ok(super::MediaInfo {
+            length: Duration::from_secs_f64(self.ctx.duration() as f64 * time_base),
+        })
+    }
+
+    fn select_stream(&mut self, index: usize) -> super::Result<()> {
+        if index >= self.ctx.nb_streams() as usize {
+            return Err(super::Error::InvalidStream);
+        }
+        self.stream = index;
+        Ok(())
+    }
+}
+
 /// Wraps the `ffmpeg` video decoder.
 struct AudioDecoder {
     decoder: ffmpeg_next::codec::decoder::Audio,
