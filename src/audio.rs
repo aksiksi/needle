@@ -192,38 +192,6 @@ impl AudioComparator {
         Ok(())
     }
 
-    // Decode and resample one packet in the stream to determinew what the current stream
-    // delay is, if any.
-    #[allow(unused)]
-    fn find_initial_stream_delay(
-        ctx: &mut ffmpeg_next::format::context::Input,
-        stream_idx: usize,
-        decoder: &mut AudioDecoder,
-        resampler: &mut ffmpeg_next::software::resampling::Context,
-    ) -> Option<Duration> {
-        let first_packet = ctx
-            .packets()
-            .filter(|(s, _)| s.index() == stream_idx)
-            .map(|(_, p)| p)
-            .next();
-        if first_packet.is_none() {
-            return None;
-        }
-
-        // Decode the packet
-        let mut frame = ffmpeg_next::frame::Audio::empty();
-        let packet = first_packet.unwrap();
-        decoder.send_packet(&packet).unwrap();
-        if decoder.receive_frame(&mut frame).is_err() {
-            return None;
-        }
-
-        // Resample the frame and return any delay
-        let mut frame_resampled = ffmpeg_next::frame::Audio::empty();
-        let delay = resampler.run(&frame, &mut frame_resampled).unwrap();
-        delay.map(|d| Duration::from_millis(d.milliseconds as u64))
-    }
-
     // Given an audio stream, computes the fingerprint for raw audio for the given duration.
     //
     // `count` can be used to limit the number of frames to process.
@@ -231,9 +199,10 @@ impl AudioComparator {
         ctx: &mut ffmpeg_next::format::context::Input,
         decoder: &mut AudioDecoder,
         stream_idx: usize,
-        hash_duration: Option<Duration>,
-        hash_period: Option<f32>,
+        hash_duration: Duration,
+        hash_period: Duration,
         duration: Option<Duration>,
+        // Debug options
         start_ts: Option<Duration>,
         write_samples: bool,
     ) -> (Vec<(u32, Duration)>, Vec<(Duration, Vec<u8>)>) {
@@ -253,17 +222,9 @@ impl AudioComparator {
         let mut frame_resampled = ffmpeg_next::frame::Audio::empty();
 
         // Setup the audio fingerprinter
-        let hash_duration = hash_duration.unwrap_or(Duration::from_secs(3));
-        let hash_period = hash_period.unwrap_or(1.0);
-        let n = f32::ceil(hash_duration.as_secs_f32() / hash_period) as usize;
-        let mut fingerprinter = chromaprint::DelayedFingerprinter::new(
-            n,
-            hash_duration,
-            Duration::from_secs_f32(hash_period),
-            None,
-            2,
-            None,
-        );
+        let n = f32::ceil(hash_duration.as_secs_f32() / hash_period.as_secs_f32()) as usize;
+        let mut fingerprinter =
+            chromaprint::DelayedFingerprinter::new(n, hash_duration, hash_period, None, 2, None);
 
         // Setup the audio resampler
         let target_sample_rate = fingerprinter.sample_rate();
@@ -276,7 +237,7 @@ impl AudioComparator {
             )
             .unwrap();
 
-        // TODO(aksiksi): Allow selection of stream.
+        // Build an iterator over packets in the stream.
         let audio_packets = ctx
             .packets()
             .filter(|(s, _)| s.index() == stream_idx)
@@ -292,9 +253,10 @@ impl AudioComparator {
                 } else {
                     true
                 }
-            });
+            })
+            .map(|(p, _)| p);
 
-        for (p, _) in audio_packets {
+        for p in audio_packets {
             decoder.send_packet(&p).unwrap();
             while decoder.receive_frame(&mut frame).is_ok() {
                 // Resample frame to S16 stereo and return the frame delay.
@@ -340,18 +302,6 @@ impl AudioComparator {
         }
 
         (hashes, output_samples)
-    }
-
-    // Returns all packets for a given stream.
-    #[allow(unused)]
-    pub fn get_all_packets(
-        ctx: &mut ffmpeg_next::format::context::Input,
-        stream_idx: usize,
-    ) -> Vec<ffmpeg_next::codec::packet::Packet> {
-        ctx.packets()
-            .filter(|(s, _)| s.index() == stream_idx)
-            .map(|(_, p)| p)
-            .collect()
     }
 
     // TODO(aksiksi): Document this.
@@ -579,10 +529,11 @@ impl AudioComparator {
     pub fn run(
         &mut self,
         hash_period: f32,
-        write_result: bool,
+        hash_duration: f32,
         opening_search_percentage: f32,
         minimum_opening_duration: Duration,
         minimum_ending_duration: Duration,
+        write_result: bool,
     ) -> anyhow::Result<()> {
         let span = tracing::span!(tracing::Level::TRACE, "run");
         let _enter = span.enter();
@@ -599,8 +550,8 @@ impl AudioComparator {
             &mut self.src_ctx,
             &mut src_decoder,
             src_stream_idx,
-            Some(Duration::from_secs(3)),
-            Some(hash_period),
+            Duration::from_secs_f32(hash_duration),
+            Duration::from_secs_f32(hash_period),
             None,
             None,
             write_result,
@@ -615,8 +566,8 @@ impl AudioComparator {
             &mut self.dst_ctx,
             &mut dst_decoder,
             dst_stream_idx,
-            Some(Duration::from_secs(3)),
-            Some(hash_period),
+            Duration::from_secs_f32(hash_duration),
+            Duration::from_secs_f32(hash_period),
             None,
             None,
             write_result,

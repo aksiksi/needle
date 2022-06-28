@@ -44,11 +44,19 @@ struct Args {
 
     #[clap(
         long,
-        default_value = "75",
-        value_parser = clap::value_parser!(u8),
-        help = "Specifies which portion of the video the opening and ending should be in. For example, if set to 75%, a match found in the first 75% of the video will be considered the opening, while a match in the last 25% will be considered the ending."
+        default_value = "3.0",
+        value_parser = clap::value_parser!(f32),
+        help = "Duration of audio to hash, in seconds.",
     )]
-    opening_search_percentage: u8,
+    hash_duration: f32,
+
+    #[clap(
+        long,
+        default_value = "0.75",
+        value_parser = clap::value_parser!(f32),
+        help = "Specifies which portion of the video the opening and ending should be in. For example, if set to 0.75, a match found in the first 75% of the video will be considered the opening, while a match in the last 25% will be considered the ending."
+    )]
+    opening_search_percentage: f32,
 
     #[clap(
         long,
@@ -70,9 +78,9 @@ struct Args {
         long,
         default_value = "false",
         action(ArgAction::SetTrue),
-        help = "Enable multi-threaded audio decoding in ffmpeg. This will create NUM_CPU threads."
+        help = "Enable multi-threaded decoding in ffmpeg."
     )]
-    threaded: bool,
+    threaded_decoding: bool,
 
     #[clap(
         short,
@@ -95,21 +103,27 @@ fn main() {
 
     let args = Args::parse();
 
-    if args.opening_search_percentage >= 100 {
+    if args.opening_search_percentage >= 1.0 {
         let mut cmd = Args::command();
         cmd.error(
             ErrorKind::InvalidValue,
-            "opening_search_percentage must be less than 100",
+            "opening_search_percentage must be less than 1.0",
         )
         .exit();
     }
-    let opening_search_percentage = args.opening_search_percentage as f32 / 100.0;
-
     if args.hash_period <= 0.0 {
         let mut cmd = Args::command();
         cmd.error(
             ErrorKind::InvalidValue,
             "hash_period must be a positive number",
+        )
+        .exit();
+    }
+    if args.hash_duration < 3.0 {
+        let mut cmd = Args::command();
+        cmd.error(
+            ErrorKind::InvalidValue,
+            "hash_duration must be greater than 3 seconds",
         )
         .exit();
     }
@@ -161,16 +175,20 @@ fn main() {
 
     match args.mode {
         Mode::Audio => {
-            let mut audio_comparator =
-                audio::AudioComparator::new(&args.videos[0], &args.videos[1], args.threaded)
-                    .unwrap();
+            let mut audio_comparator = audio::AudioComparator::new(
+                &args.videos[0],
+                &args.videos[1],
+                args.threaded_decoding,
+            )
+            .unwrap();
             audio_comparator
                 .run(
                     args.hash_period,
-                    args.write_result,
-                    opening_search_percentage,
+                    args.hash_duration,
+                    args.opening_search_percentage,
                     Duration::from_secs(args.min_opening_duration as u64),
                     Duration::from_secs(args.min_ending_duration as u64),
+                    args.write_result,
                 )
                 .unwrap();
         }
