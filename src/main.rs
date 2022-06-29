@@ -52,6 +52,14 @@ struct Args {
 
     #[clap(
         long,
+        default_value = "15",
+        value_parser = clap::value_parser!(u16),
+        help = "Threshold to use when comparing hashes. The range is 0 (exact match) to 32 (no match).",
+    )]
+    hash_match_threshold: u16,
+
+    #[clap(
+        long,
         default_value = "0.75",
         value_parser = clap::value_parser!(f32),
         help = "Specifies which portion of the video the opening and ending should be in. For example, if set to 0.75, a match found in the first 75% of the video will be considered the opening, while a match in the last 25% will be considered the ending."
@@ -102,9 +110,9 @@ fn main() {
     ffmpeg_next::init().unwrap();
 
     let args = Args::parse();
+    let mut cmd = Args::command();
 
     if args.opening_search_percentage >= 1.0 {
-        let mut cmd = Args::command();
         cmd.error(
             ErrorKind::InvalidValue,
             "opening_search_percentage must be less than 1.0",
@@ -112,7 +120,6 @@ fn main() {
         .exit();
     }
     if args.hash_period <= 0.0 {
-        let mut cmd = Args::command();
         cmd.error(
             ErrorKind::InvalidValue,
             "hash_period must be a positive number",
@@ -120,10 +127,16 @@ fn main() {
         .exit();
     }
     if args.hash_duration < 3.0 {
-        let mut cmd = Args::command();
         cmd.error(
             ErrorKind::InvalidValue,
             "hash_duration must be greater than 3 seconds",
+        )
+        .exit();
+    }
+    if args.hash_match_threshold > 32 {
+        cmd.error(
+            ErrorKind::InvalidValue,
+            "hash_match_threshold cannot be larger than 32",
         )
         .exit();
     }
@@ -175,9 +188,10 @@ fn main() {
 
     match args.mode {
         Mode::Audio => {
-            let mut audio_comparator = audio::AudioComparator::new(
+            let audio_comparator = audio::AudioComparator::new(
                 &args.videos[0],
                 &args.videos[1],
+                args.hash_match_threshold,
                 args.threaded_decoding,
             )
             .unwrap();
