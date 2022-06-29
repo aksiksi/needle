@@ -14,9 +14,12 @@ image = { version = "0.24", optional = true }
 chromaprint = { git = "https://github.com/aksiksi/chromaprint" }
 num-traits = "0.2"
 clap = { version = "3", features = ["derive"] }
+bincode = "1.3"
+serde = { version = "1", features = ["derive"] }
+rayon = { version = "1.5", optional = true }
 
 [features]
-default = []
+default = ["rayon"]
 video = ["blockhash", "image"]
 static = ["chromaprint/static", "ffmpeg-next/static"]
 

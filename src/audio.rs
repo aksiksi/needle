@@ -3,12 +3,24 @@ extern crate ffmpeg_next;
 
 use std::collections::BinaryHeap;
 use std::fmt::Display;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Duration;
+
+use serde::{Deserialize, Serialize};
 
 use super::simhash::simhash32;
 use super::util;
 use super::Error;
+
+const DEFAULT_FRAME_HASH_DATA_EXT: &str = "needle.bin";
+
+// TODO: Include MD5 hash to avoid duplicating work.
+#[derive(Deserialize, Serialize)]
+pub struct FrameHashes {
+    hash_period: f32,
+    hash_duration: f32,
+    data: Vec<(u32, Duration)>,
+}
 
 /// Wraps the `ffmpeg` video decoder.
 struct AudioDecoder {
@@ -77,39 +89,24 @@ struct OpeningAndEndingInfo {
     dst_endings: Vec<ComparatorHeapEntry>,
 }
 
-/// Compares two audio streams.
-pub struct AudioComparator {
-    src_path: PathBuf,
-    dst_path: PathBuf,
-    hash_match_threshold: u16,
+pub struct AudioAnalyzer {
+    path: PathBuf,
     threaded_decoding: bool,
 }
 
-impl AudioComparator {
-    pub fn new<P, Q>(
-        src_path: P,
-        dst_path: Q,
-        hash_match_threshold: u16,
-        threaded_decoding: bool,
-    ) -> anyhow::Result<Self>
+impl AudioAnalyzer {
+    pub fn new<P>(path: P, threaded_decoding: bool) -> anyhow::Result<Self>
     where
-        P: AsRef<Path>,
-        Q: AsRef<Path>,
+        P: Into<PathBuf>,
     {
         Ok(Self {
-            src_path: src_path.as_ref().to_path_buf(),
-            dst_path: dst_path.as_ref().to_path_buf(),
-            hash_match_threshold,
+            path: path.into(),
             threaded_decoding,
         })
     }
 
-    fn src_context(&self) -> anyhow::Result<ffmpeg_next::format::context::Input> {
-        Ok(ffmpeg_next::format::input(&self.src_path)?)
-    }
-
-    fn dst_context(&self) -> anyhow::Result<ffmpeg_next::format::context::Input> {
-        Ok(ffmpeg_next::format::input(&self.dst_path)?)
+    fn context(&self) -> anyhow::Result<ffmpeg_next::format::context::Input> {
+        Ok(ffmpeg_next::format::input(&self.path)?)
     }
 
     fn find_best_audio_stream(
@@ -176,8 +173,7 @@ impl AudioComparator {
         threaded: bool,
         // Debug options
         start_ts: Option<Duration>,
-        write_samples: bool,
-    ) -> (Vec<(u32, Duration)>, Vec<(Duration, Vec<u8>)>) {
+    ) -> anyhow::Result<Vec<(u32, Duration)>> {
         let span = tracing::span!(tracing::Level::TRACE, "process_frames");
         let _enter = span.enter();
 
@@ -185,7 +181,6 @@ impl AudioComparator {
         let mut decoder = AudioDecoder::from_stream(stream, threaded).unwrap();
 
         let mut hashes = Vec::new();
-        let mut output_samples = Vec::new();
         let mut frame = ffmpeg_next::frame::Audio::empty();
         let mut frame_resampled = ffmpeg_next::frame::Audio::empty();
 
@@ -251,10 +246,6 @@ impl AudioComparator {
                     // This looks like: c1, c2, c1, c2, ...
                     let (_, samples, _) = unsafe { raw_samples.align_to() };
 
-                    if write_samples {
-                        output_samples.push((fingerprinter.clock(), raw_samples.to_vec()));
-                    }
-
                     // Feed the i16 samples to Chromaprint. Since we are using the default sampling rate,
                     // Chromaprint will _not_ do any resampling internally.
                     for (raw_fingerprint, mut ts) in fingerprinter.feed(samples).unwrap() {
@@ -276,7 +267,110 @@ impl AudioComparator {
             }
         }
 
-        (hashes, output_samples)
+        Ok(hashes)
+    }
+
+    pub fn run(&self, hash_period: f32, hash_duration: f32) -> anyhow::Result<FrameHashes> {
+        let span = tracing::span!(tracing::Level::TRACE, "run");
+        let _enter = span.enter();
+
+        let path = self.path.clone();
+        let mut ctx = self.context()?;
+        let stream = Self::find_best_audio_stream(&ctx);
+        let stream_idx = stream.index();
+        let threaded = self.threaded_decoding;
+
+        tracing::info!("starting frame processing for {}", path.display());
+        let frame_hashes = Self::process_frames(
+            &mut ctx,
+            stream_idx,
+            Duration::from_secs_f32(hash_duration),
+            Duration::from_secs_f32(hash_period),
+            None,
+            threaded,
+            None,
+        )?;
+        tracing::info!(
+            num_hashes = frame_hashes.len(),
+            "completed frame processing for {}",
+            path.display(),
+        );
+
+        // Write results to disk.
+        let frame_hashes = FrameHashes {
+            hash_period,
+            hash_duration,
+            data: frame_hashes,
+        };
+
+        let mut f = std::fs::File::create(path.with_extension(DEFAULT_FRAME_HASH_DATA_EXT))?;
+
+        bincode::serialize_into(&mut f, &frame_hashes)?;
+
+        Ok(frame_hashes)
+    }
+}
+
+/// Compares two audio streams.
+pub struct AudioComparator {
+    src_path: PathBuf,
+    dst_path: PathBuf,
+    src_frame_hashes: FrameHashes,
+    dst_frame_hashes: FrameHashes,
+    hash_match_threshold: u16,
+    opening_search_percentage: f32,
+    minimum_opening_duration: Duration,
+    minimum_ending_duration: Duration,
+}
+
+impl AudioComparator {
+    pub fn from_files<P, Q>(
+        src_path: P,
+        dst_path: Q,
+        hash_match_threshold: u16,
+        opening_search_percentage: f32,
+        minimum_opening_duration: Duration,
+        minimum_ending_duration: Duration,
+    ) -> anyhow::Result<Self>
+    where
+        P: Into<PathBuf>,
+        Q: Into<PathBuf>,
+    {
+        let src_path = src_path.into();
+        let dst_path = dst_path.into();
+
+        // Make sure frame data files exist for these videos.
+        let src_data_path = src_path.clone().with_extension(DEFAULT_FRAME_HASH_DATA_EXT);
+        let dst_data_path = dst_path.clone().with_extension(DEFAULT_FRAME_HASH_DATA_EXT);
+        if !src_data_path.exists() {
+            return Err(Error::FrameHashDataNotFound(src_data_path).into());
+        }
+        if !dst_data_path.exists() {
+            return Err(Error::FrameHashDataNotFound(dst_data_path).into());
+        }
+
+        // Load frame hash data from disk.
+        let src_file = std::fs::File::open(&src_data_path)?;
+        let dst_file = std::fs::File::open(&dst_data_path)?;
+        let src_frame_hashes: FrameHashes = bincode::deserialize_from(&src_file).expect(&format!(
+            "invalid frame hash data file: {}",
+            src_data_path.display()
+        ));
+        let dst_frame_hashes: FrameHashes = bincode::deserialize_from(&dst_file).expect(&format!(
+            "invalid frame hash data file: {}",
+            dst_data_path.display()
+        ));
+
+        Ok(Self {
+            src_path,
+            dst_path,
+            src_frame_hashes,
+            dst_frame_hashes,
+            hash_match_threshold,
+            opening_search_percentage,
+            minimum_opening_duration,
+            minimum_ending_duration,
+        })
     }
 
     // TODO(aksiksi): Document this.
@@ -363,17 +457,14 @@ impl AudioComparator {
         &self,
         src_hashes: &[(u32, Duration)],
         dst_hashes: &[(u32, Duration)],
-        opening_search_percentage: f32,
-        minimum_opening_duration: Duration,
-        minimum_ending_duration: Duration,
     ) -> OpeningAndEndingInfo {
         let _g = tracing::span!(tracing::Level::TRACE, "find_opening_and_ending");
 
         let mut heap: ComparatorHeap =
             BinaryHeap::with_capacity(src_hashes.len() + dst_hashes.len());
 
-        let src_partition_idx = (src_hashes.len() as f32 * opening_search_percentage) as usize;
-        let dst_partition_idx = (dst_hashes.len() as f32 * opening_search_percentage) as usize;
+        let src_partition_idx = (src_hashes.len() as f32 * self.opening_search_percentage) as usize;
+        let dst_partition_idx = (dst_hashes.len() as f32 * self.opening_search_percentage) as usize;
 
         // We do a single search for opening and ending in the source and dest.
         //
@@ -440,23 +531,23 @@ impl AudioComparator {
             let (dst_start, dst_end) = entry.dst_longest_run;
             let (src_duration, dst_duration) = (src_end - src_start, dst_end - dst_start);
 
-            let valid_duration = src_duration >= minimum_opening_duration
-                || src_duration >= minimum_ending_duration
-                || dst_duration >= minimum_opening_duration
-                || dst_duration >= minimum_ending_duration;
+            let valid_duration = src_duration >= self.minimum_opening_duration
+                || src_duration >= self.minimum_ending_duration
+                || dst_duration >= self.minimum_opening_duration
+                || dst_duration >= self.minimum_ending_duration;
             if !valid_duration {
                 break;
             }
 
-            if src_duration >= minimum_opening_duration && src_end <= src_max_opening_time {
+            if src_duration >= self.minimum_opening_duration && src_end <= src_max_opening_time {
                 src_valid_openings.push(entry.clone());
-            } else if src_duration >= minimum_ending_duration && src_start >= src_max_opening_time {
+            } else if src_duration >= self.minimum_ending_duration && src_start >= src_max_opening_time {
                 src_valid_endings.push(entry.clone());
             }
 
-            if dst_duration >= minimum_opening_duration && dst_end <= dst_max_opening_time {
+            if dst_duration >= self.minimum_opening_duration && dst_end <= dst_max_opening_time {
                 dst_valid_openings.push(entry.clone());
-            } else if dst_duration >= minimum_ending_duration && dst_start >= dst_max_opening_time {
+            } else if dst_duration >= self.minimum_ending_duration && dst_start >= dst_max_opening_time {
                 dst_valid_endings.push(entry.clone());
             }
         }
@@ -471,87 +562,20 @@ impl AudioComparator {
 
     pub fn run(
         &self,
-        hash_period: f32,
-        hash_duration: f32,
-        opening_search_percentage: f32,
-        minimum_opening_duration: Duration,
-        minimum_ending_duration: Duration,
-        write_result: bool,
     ) -> anyhow::Result<()> {
-        let span = tracing::span!(tracing::Level::TRACE, "run");
-        let _enter = span.enter();
-
-        let (src_path, dst_path) = (self.src_path.clone(), self.dst_path.clone());
-        let (mut src_ctx, mut dst_ctx) = (self.src_context()?, self.dst_context()?);
-        let (src_stream, dst_stream) = (
-            Self::find_best_audio_stream(&src_ctx),
-            Self::find_best_audio_stream(&dst_ctx),
-        );
-        let (src_stream_idx, dst_stream_idx) = (src_stream.index(), dst_stream.index());
-        let threaded = self.threaded_decoding;
-
-        // Decode and hash the source file on a separate thread.
-        let src_handle = std::thread::spawn(move || {
-            tracing::info!("starting frame processing for {}", src_path.display());
-            let (src_frame_hashes, src_samples) = Self::process_frames(
-                &mut src_ctx,
-                src_stream_idx,
-                Duration::from_secs_f32(hash_duration),
-                Duration::from_secs_f32(hash_period),
-                None,
-                threaded,
-                None,
-                write_result,
-            );
-            tracing::info!(
-                num_hashes = src_frame_hashes.len(),
-                "completed frame processing for {}",
-                src_path.display(),
-            );
-            (src_frame_hashes, src_samples)
-        });
-
-        tracing::info!("starting frame processing for {}", dst_path.display());
-        let (dst_frame_hashes, dst_samples) = Self::process_frames(
-            &mut dst_ctx,
-            dst_stream_idx,
-            Duration::from_secs_f32(hash_duration),
-            Duration::from_secs_f32(hash_period),
-            None,
-            threaded,
-            None,
-            write_result,
-        );
-        tracing::info!(
-            num_hashes = dst_frame_hashes.len(),
-            "completed frame processing for {}",
-            dst_path.display(),
-        );
-
-        let (src_frame_hashes, src_samples) = src_handle.join().unwrap();
-
         tracing::info!("starting search for opening and ending");
         let info = self.find_opening_and_ending(
-            &src_frame_hashes,
-            &dst_frame_hashes,
-            opening_search_percentage,
-            minimum_opening_duration,
-            minimum_ending_duration,
+            &self.src_frame_hashes.data,
+            &self.dst_frame_hashes.data,
         );
         tracing::info!("finished search for opening and ending");
 
-        self.display_opening_ending_info(&info, &src_samples, &dst_samples, write_result);
+        self.display_opening_ending_info(&info);
 
         Ok(())
     }
 
-    fn display_opening_ending_info(
-        &self,
-        info: &OpeningAndEndingInfo,
-        src_samples: &[(Duration, Vec<u8>)],
-        dst_samples: &[(Duration, Vec<u8>)],
-        write_result: bool,
-    ) {
+    fn display_opening_ending_info(&self, info: &OpeningAndEndingInfo) {
         println!("\nSource: {}\n", self.src_path.display());
 
         if let Some(opening) = info.src_openings.first() {
@@ -562,9 +586,6 @@ impl AudioComparator {
                 util::format_time(start),
                 util::format_time(end)
             );
-            if write_result {
-                util::write_samples_in_range("opening_src.raw", opening, &src_samples);
-            }
         } else {
             println!("* Opening - N/A");
         }
@@ -576,9 +597,6 @@ impl AudioComparator {
                 util::format_time(start),
                 util::format_time(end)
             );
-            if write_result {
-                util::write_samples_in_range("ending_src.raw", ending, &src_samples);
-            }
         } else {
             println!("* Ending - N/A");
         }
@@ -593,9 +611,6 @@ impl AudioComparator {
                 util::format_time(start),
                 util::format_time(end)
             );
-            if write_result {
-                util::write_samples_in_range("opening_dst.raw", opening, &dst_samples);
-            }
         } else {
             println!("* Opening - N/A");
         }
@@ -607,9 +622,6 @@ impl AudioComparator {
                 util::format_time(start),
                 util::format_time(end)
             );
-            if write_result {
-                util::write_samples_in_range("ending_dst.raw", ending, &dst_samples);
-            }
         } else {
             println!("* Ending - N/A");
         }

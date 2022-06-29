@@ -2,6 +2,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+#[allow(unused)]
 pub fn write_samples_in_range(
     path: impl AsRef<Path>,
     (start, end): (Duration, Duration),
