@@ -31,14 +31,17 @@ pub enum Error {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
-    #[clap(arg_required_else_help = true)]
+    #[clap(
+        arg_required_else_help = true,
+        after_help = "Decode one or more video files into a list of frame hashes. The frame hash data is written to disk alongside each analyzed video file, and is used by the 'search' command."
+    )]
     Analyze {
         #[clap(
             required = true,
             multiple_values = true,
             help = "Video files or directories to analyze."
         )]
-        video: Vec<PathBuf>,
+        paths: Vec<PathBuf>,
 
         #[clap(short, long, value_enum, default_value_t = Mode::Audio, help = "Analysis mode. The default mode is audio, which uses audio streams to find potential openings and endings. Video mode is less accurate and _much_ slower, but is useful if no audio stream is available.")]
         mode: Mode,
@@ -67,14 +70,17 @@ enum Commands {
         )]
         threaded_decoding: bool,
     },
-    #[clap(arg_required_else_help = true)]
+    #[clap(
+        arg_required_else_help = true,
+        after_help = "Search for openings and endings among a group of videos using frame hash data. Hash data can either be pre-computed using the 'analyze' command or generated as part of the search. Note that precomputation saves a ton of time."
+    )]
     Search {
         #[clap(
             required = true,
             multiple_values = true,
             help = "Video files or directories to search for openings and endings in."
         )]
-        video: Vec<PathBuf>,
+        paths: Vec<PathBuf>,
 
         #[clap(
             long,
@@ -166,8 +172,8 @@ impl Cli {
 
     fn videos(&self) -> &Vec<PathBuf> {
         match self.command {
-            Commands::Analyze { ref video, .. } => video,
-            Commands::Search { ref video, .. } => video,
+            Commands::Analyze { ref paths, .. } => paths,
+            Commands::Search { ref paths, .. } => paths,
         }
     }
 
