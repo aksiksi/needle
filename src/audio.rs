@@ -242,8 +242,12 @@ impl AudioAnalyzer {
                     // a) sample count, b) channel count, and c) number of bytes per S16 sample.
                     let raw_samples = &frame_resampled.data(0)
                         [..frame_resampled.samples() * frame_resampled.channels() as usize * 2];
+
                     // Transmute the raw byte slice into a slice of i16 samples.
                     // This looks like: c1, c2, c1, c2, ...
+                    //
+                    // SAFETY: We know for a fact that the returned buffer contains i16 samples
+                    // because we explicitly told the resampler to return S16 samples (see above).
                     let (_, samples, _) = unsafe { raw_samples.align_to() };
 
                     // Feed the i16 samples to Chromaprint. Since we are using the default sampling rate,

@@ -1026,6 +1026,8 @@ mod test {
             1970300077,
         ];
 
+        // SAFETY: The array above is copied from the C++ version and just needs
+        // its contents casted to u32.
         let (_, converted, _) = unsafe { DATA.align_to::<u32>() };
         let hash = simhash32(converted);
         assert_eq!(1961926954, hash);
