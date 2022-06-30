@@ -48,7 +48,7 @@ enum Commands {
 
         #[clap(
             long,
-            default_value = "0.3",
+            default_value_t = audio::DEFAULT_HASH_PERIOD,
             value_parser = clap::value_parser!(f32),
             help = "Period between hashes, in seconds. For example, if set to 0.3, a hash will be generated for every 300 ms of audio. Lowering this number can improve the accuracy of the result, at the cost of performance. The default aims to strike a balance between accuracy and performance."
         )]
@@ -56,7 +56,7 @@ enum Commands {
 
         #[clap(
             long,
-            default_value = "3.0",
+            default_value_t = audio::DEFAULT_HASH_DURATION,
             value_parser = clap::value_parser!(f32),
             help = "Duration of audio to hash, in seconds.",
         )]
@@ -84,7 +84,7 @@ enum Commands {
 
         #[clap(
             long,
-            default_value = "15",
+            default_value_t = audio::DEFAULT_HASH_MATCH_THRESHOLD,
             value_parser = clap::value_parser!(u16),
             help = "Threshold to use when comparing hashes. The range is 0 (exact match) to 32 (no match).",
         )]
@@ -92,7 +92,7 @@ enum Commands {
 
         #[clap(
             long,
-            default_value = "0.75",
+            default_value_t = audio::DEFAULT_OPENING_SEARCH_PERCENTAGE,
             value_parser = clap::value_parser!(f32),
             help = "Specifies which portion of the video the opening and ending should be in. For example, if set to 0.75, a match found in the first 75% of the video will be considered the opening, while a match in the last 25% will be considered the ending."
         )]
@@ -100,7 +100,7 @@ enum Commands {
 
         #[clap(
             long,
-            default_value = "10",
+            default_value_t = audio::DEFAULT_MIN_OPENING_DURATION,
             value_parser = clap::value_parser!(u16),
             help = "Minimum opening duration, in seconds. Setting a value that is close to the actual length helps reduce false positives (i.e., detecting an opening when there isn't one)."
         )]
@@ -108,11 +108,19 @@ enum Commands {
 
         #[clap(
             long,
-            default_value = "10",
+            default_value_t = audio::DEFAULT_MIN_ENDING_DURATION,
             value_parser = clap::value_parser!(u16),
             help = "Minimum ending duration, in seconds. Setting a value that is close to the actual length helps reduce false positives (i.e., detecting an ending when there isn't one)."
         )]
         min_ending_duration: u16,
+
+        #[clap(
+            long,
+            default_value = "false",
+            action(ArgAction::SetTrue),
+            help = "Run the analysis step in-place instead of looking for pre-computed hash data."
+        )]
+        analyze: bool,
     },
 }
 
@@ -244,11 +252,11 @@ fn main() {
 
                 #[cfg(feature = "rayon")]
                 analyzers.par_iter().for_each(|analyzer| {
-                    analyzer.run(hash_period, hash_duration).unwrap();
+                    analyzer.run(hash_period, hash_duration, true).unwrap();
                 });
                 #[cfg(not(feature = "rayon"))]
                 analyzers.iter().for_each(|analyzer| {
-                    analyzer.run(hash_period, hash_duration).unwrap();
+                    analyzer.run(hash_period, hash_duration, true).unwrap();
                 });
             }
             #[cfg(feature = "video")]
@@ -263,6 +271,7 @@ fn main() {
             opening_search_percentage,
             min_opening_duration,
             min_ending_duration,
+            analyze,
             ..
         } => {
             if video_files.len() < 2 {
@@ -285,7 +294,7 @@ fn main() {
                 Duration::from_secs(min_ending_duration.into()),
             )
             .unwrap();
-            audio_comparator.run().unwrap();
+            audio_comparator.run(analyze).unwrap();
         }
     }
 }

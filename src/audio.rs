@@ -14,6 +14,14 @@ use super::Error;
 
 const DEFAULT_FRAME_HASH_DATA_EXT: &str = "needle.bin";
 
+// Defaults
+pub const DEFAULT_HASH_PERIOD: f32 = 0.3;
+pub const DEFAULT_HASH_DURATION: f32 = 3.0;
+pub const DEFAULT_HASH_MATCH_THRESHOLD: u16 = 15;
+pub const DEFAULT_OPENING_SEARCH_PERCENTAGE: f32 = 0.75;
+pub const DEFAULT_MIN_OPENING_DURATION: u16 = 10; // seconds
+pub const DEFAULT_MIN_ENDING_DURATION: u16 = 10; // seconds
+
 // TODO: Include MD5 hash to avoid duplicating work.
 #[derive(Deserialize, Serialize)]
 pub struct FrameHashes {
@@ -274,7 +282,12 @@ impl AudioAnalyzer {
         Ok(hashes)
     }
 
-    pub fn run(&self, hash_period: f32, hash_duration: f32) -> anyhow::Result<FrameHashes> {
+    pub fn run(
+        &self,
+        hash_period: f32,
+        hash_duration: f32,
+        persist: bool,
+    ) -> anyhow::Result<FrameHashes> {
         let span = tracing::span!(tracing::Level::TRACE, "run");
         let _enter = span.enter();
 
@@ -300,16 +313,17 @@ impl AudioAnalyzer {
             path.display(),
         );
 
-        // Write results to disk.
         let frame_hashes = FrameHashes {
             hash_period,
             hash_duration,
             data: frame_hashes,
         };
 
-        let mut f = std::fs::File::create(path.with_extension(DEFAULT_FRAME_HASH_DATA_EXT))?;
-
-        bincode::serialize_into(&mut f, &frame_hashes)?;
+        // Write results to disk.
+        if persist {
+            let mut f = std::fs::File::create(path.with_extension(DEFAULT_FRAME_HASH_DATA_EXT))?;
+            bincode::serialize_into(&mut f, &frame_hashes)?;
+        }
 
         Ok(frame_hashes)
     }
@@ -319,8 +333,6 @@ impl AudioAnalyzer {
 pub struct AudioComparator {
     src_path: PathBuf,
     dst_path: PathBuf,
-    src_frame_hashes: FrameHashes,
-    dst_frame_hashes: FrameHashes,
     hash_match_threshold: u16,
     opening_search_percentage: f32,
     minimum_opening_duration: Duration,
@@ -343,33 +355,9 @@ impl AudioComparator {
         let src_path = src_path.into();
         let dst_path = dst_path.into();
 
-        // Make sure frame data files exist for these videos.
-        let src_data_path = src_path.clone().with_extension(DEFAULT_FRAME_HASH_DATA_EXT);
-        let dst_data_path = dst_path.clone().with_extension(DEFAULT_FRAME_HASH_DATA_EXT);
-        if !src_data_path.exists() {
-            return Err(Error::FrameHashDataNotFound(src_data_path).into());
-        }
-        if !dst_data_path.exists() {
-            return Err(Error::FrameHashDataNotFound(dst_data_path).into());
-        }
-
-        // Load frame hash data from disk.
-        let src_file = std::fs::File::open(&src_data_path)?;
-        let dst_file = std::fs::File::open(&dst_data_path)?;
-        let src_frame_hashes: FrameHashes = bincode::deserialize_from(&src_file).expect(&format!(
-            "invalid frame hash data file: {}",
-            src_data_path.display()
-        ));
-        let dst_frame_hashes: FrameHashes = bincode::deserialize_from(&dst_file).expect(&format!(
-            "invalid frame hash data file: {}",
-            dst_data_path.display()
-        ));
-
         Ok(Self {
             src_path,
             dst_path,
-            src_frame_hashes,
-            dst_frame_hashes,
             hash_match_threshold,
             opening_search_percentage,
             minimum_opening_duration,
@@ -545,13 +533,17 @@ impl AudioComparator {
 
             if src_duration >= self.minimum_opening_duration && src_end <= src_max_opening_time {
                 src_valid_openings.push(entry.clone());
-            } else if src_duration >= self.minimum_ending_duration && src_start >= src_max_opening_time {
+            } else if src_duration >= self.minimum_ending_duration
+                && src_start >= src_max_opening_time
+            {
                 src_valid_endings.push(entry.clone());
             }
 
             if dst_duration >= self.minimum_opening_duration && dst_end <= dst_max_opening_time {
                 dst_valid_openings.push(entry.clone());
-            } else if dst_duration >= self.minimum_ending_duration && dst_start >= dst_max_opening_time {
+            } else if dst_duration >= self.minimum_ending_duration
+                && dst_start >= dst_max_opening_time
+            {
                 dst_valid_endings.push(entry.clone());
             }
         }
@@ -564,14 +556,62 @@ impl AudioComparator {
         }
     }
 
-    pub fn run(
-        &self,
-    ) -> anyhow::Result<()> {
+    pub fn run(&self, analyze: bool) -> anyhow::Result<()> {
+        tracing::info!("started audio comparator");
+
+        let (src_frame_hashes, dst_frame_hashes) = if !analyze {
+            // Make sure frame data files exist for these videos.
+            let src_data_path = self
+                .src_path
+                .clone()
+                .with_extension(DEFAULT_FRAME_HASH_DATA_EXT);
+            let dst_data_path = self
+                .dst_path
+                .clone()
+                .with_extension(DEFAULT_FRAME_HASH_DATA_EXT);
+            if !src_data_path.exists() {
+                return Err(Error::FrameHashDataNotFound(src_data_path).into());
+            }
+            if !dst_data_path.exists() {
+                return Err(Error::FrameHashDataNotFound(dst_data_path).into());
+            }
+
+            // Load frame hash data from disk.
+            let src_file = std::fs::File::open(&src_data_path)?;
+            let dst_file = std::fs::File::open(&dst_data_path)?;
+            let src_frame_hashes: FrameHashes = bincode::deserialize_from(&src_file).expect(
+                &format!("invalid frame hash data file: {}", src_data_path.display()),
+            );
+            let dst_frame_hashes: FrameHashes = bincode::deserialize_from(&dst_file).expect(
+                &format!("invalid frame hash data file: {}", dst_data_path.display()),
+            );
+
+            tracing::info!("loaded hash frame data from disk");
+
+            (src_frame_hashes, dst_frame_hashes)
+        } else {
+            // Otherwise, compute the hash data now by analyzing the video files.
+            tracing::info!("starting in-place video analysis...");
+
+            let src_analyzer = AudioAnalyzer::new(self.src_path.clone(), false)?;
+            let dst_analyzer = AudioAnalyzer::new(self.dst_path.clone(), false)?;
+
+            let dst_handle = std::thread::spawn(move || {
+                let result = dst_analyzer.run(DEFAULT_HASH_PERIOD, DEFAULT_HASH_DURATION, false);
+                tracing::info!("completed analysis for dst");
+                result
+            });
+
+            let src_frame_hashes = src_analyzer.run(DEFAULT_HASH_PERIOD, DEFAULT_HASH_DURATION, false)?;
+            tracing::info!("completed analysis for src");
+            let dst_frame_hashes = dst_handle.join().unwrap()?;
+
+            (src_frame_hashes, dst_frame_hashes)
+        };
+
         tracing::info!("starting search for opening and ending");
-        let info = self.find_opening_and_ending(
-            &self.src_frame_hashes.data,
-            &self.dst_frame_hashes.data,
-        );
+        let info =
+            self.find_opening_and_ending(&src_frame_hashes.data, &dst_frame_hashes.data);
         tracing::info!("finished search for opening and ending");
 
         self.display_opening_ending_info(&info);
