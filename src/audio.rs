@@ -12,17 +12,6 @@ use super::simhash::simhash32;
 use super::util;
 use super::Error;
 
-const FRAME_HASH_DATA_FILE_EXT: &str = "needle.bin";
-const SKIP_FILE_EXT: &str = "needle.skip.json";
-
-// Defaults
-pub const DEFAULT_HASH_PERIOD: f32 = 0.3;
-pub const DEFAULT_HASH_DURATION: f32 = 3.0;
-pub const DEFAULT_HASH_MATCH_THRESHOLD: u16 = 15;
-pub const DEFAULT_OPENING_SEARCH_PERCENTAGE: f32 = 0.75;
-pub const DEFAULT_MIN_OPENING_DURATION: u16 = 20; // seconds
-pub const DEFAULT_MIN_ENDING_DURATION: u16 = 20; // seconds
-
 // TODO: Include MD5 hash to avoid duplicating work.
 #[derive(Deserialize, Serialize)]
 pub struct FrameHashes {
@@ -104,6 +93,10 @@ pub struct AudioAnalyzer {
 }
 
 impl AudioAnalyzer {
+    pub const DEFAULT_HASH_PERIOD: f32 = 0.3;
+    pub const DEFAULT_HASH_DURATION: f32 = 3.0;
+    const FRAME_HASH_DATA_FILE_EXT: &'static str = "needle.bin";
+
     pub fn new<P>(path: P, threaded_decoding: bool) -> anyhow::Result<Self>
     where
         P: Into<PathBuf>,
@@ -322,7 +315,7 @@ impl AudioAnalyzer {
 
         // Write results to disk.
         if persist {
-            let mut f = std::fs::File::create(path.with_extension(FRAME_HASH_DATA_FILE_EXT))?;
+            let mut f = std::fs::File::create(path.with_extension(Self::FRAME_HASH_DATA_FILE_EXT))?;
             bincode::serialize_into(&mut f, &frame_hashes)?;
         }
 
@@ -341,6 +334,12 @@ pub struct AudioComparator {
 }
 
 impl AudioComparator {
+    pub const DEFAULT_HASH_MATCH_THRESHOLD: u16 = 15;
+    pub const DEFAULT_OPENING_SEARCH_PERCENTAGE: f32 = 0.75;
+    pub const DEFAULT_MIN_OPENING_DURATION: u16 = 20; // seconds
+    pub const DEFAULT_MIN_ENDING_DURATION: u16 = 20; // seconds
+    const SKIP_FILE_EXT: &'static str = "needle.skip.json";
+
     pub fn from_files<P, Q>(
         src_path: P,
         dst_path: Q,
@@ -565,11 +564,11 @@ impl AudioComparator {
             let src_data_path = self
                 .src_path
                 .clone()
-                .with_extension(FRAME_HASH_DATA_FILE_EXT);
+                .with_extension(AudioAnalyzer::FRAME_HASH_DATA_FILE_EXT);
             let dst_data_path = self
                 .dst_path
                 .clone()
-                .with_extension(FRAME_HASH_DATA_FILE_EXT);
+                .with_extension(AudioAnalyzer::FRAME_HASH_DATA_FILE_EXT);
             if !src_data_path.exists() {
                 return Err(Error::FrameHashDataNotFound(src_data_path).into());
             }
@@ -598,13 +597,20 @@ impl AudioComparator {
             let dst_analyzer = AudioAnalyzer::new(self.dst_path.clone(), false)?;
 
             let dst_handle = std::thread::spawn(move || {
-                let result = dst_analyzer.run(DEFAULT_HASH_PERIOD, DEFAULT_HASH_DURATION, false);
+                let result = dst_analyzer.run(
+                    AudioAnalyzer::DEFAULT_HASH_PERIOD,
+                    AudioAnalyzer::DEFAULT_HASH_DURATION,
+                    false,
+                );
                 tracing::info!("completed analysis for dst");
                 result
             });
 
-            let src_frame_hashes =
-                src_analyzer.run(DEFAULT_HASH_PERIOD, DEFAULT_HASH_DURATION, false)?;
+            let src_frame_hashes = src_analyzer.run(
+                AudioAnalyzer::DEFAULT_HASH_PERIOD,
+                AudioAnalyzer::DEFAULT_HASH_DURATION,
+                false,
+            )?;
             tracing::info!("completed analysis for src");
             let dst_frame_hashes = dst_handle.join().unwrap()?;
 
@@ -626,8 +632,8 @@ impl AudioComparator {
     }
 
     fn create_skip_files(&self, info: &OpeningAndEndingInfo) -> anyhow::Result<()> {
-        let src_skip_file = self.src_path.clone().with_extension(SKIP_FILE_EXT);
-        let dst_skip_file = self.dst_path.clone().with_extension(SKIP_FILE_EXT);
+        let src_skip_file = self.src_path.clone().with_extension(Self::SKIP_FILE_EXT);
+        let dst_skip_file = self.dst_path.clone().with_extension(Self::SKIP_FILE_EXT);
         let mut src_skip_file = std::fs::File::create(src_skip_file)?;
         let mut dst_skip_file = std::fs::File::create(dst_skip_file)?;
 
