@@ -20,12 +20,12 @@ pub struct FrameHashes {
     data: Vec<(u32, Duration)>,
 }
 
-/// Wraps the `ffmpeg` video decoder.
-struct AudioDecoder {
+/// Wraps the `ffmpeg` audio decoder.
+struct Decoder {
     decoder: ffmpeg_next::codec::decoder::Audio,
 }
 
-impl AudioDecoder {
+impl Decoder {
     fn build_threading_config() -> ffmpeg_next::codec::threading::Config {
         let mut config = ffmpeg_next::codec::threading::Config::default();
         config.count = std::thread::available_parallelism()
@@ -87,12 +87,12 @@ struct OpeningAndEndingInfo {
     dst_endings: Vec<ComparatorHeapEntry>,
 }
 
-pub struct AudioAnalyzer {
+pub struct Analyzer {
     path: PathBuf,
     threaded_decoding: bool,
 }
 
-impl AudioAnalyzer {
+impl Analyzer {
     pub const DEFAULT_HASH_PERIOD: f32 = 0.3;
     pub const DEFAULT_HASH_DURATION: f32 = 3.0;
     const FRAME_HASH_DATA_FILE_EXT: &'static str = "needle.bin";
@@ -180,7 +180,7 @@ impl AudioAnalyzer {
         let _enter = span.enter();
 
         let stream = ctx.stream(stream_idx).unwrap();
-        let mut decoder = AudioDecoder::from_stream(stream, threaded).unwrap();
+        let mut decoder = Decoder::from_stream(stream, threaded).unwrap();
 
         let mut hashes = Vec::new();
         let mut frame = ffmpeg_next::frame::Audio::empty();
@@ -324,7 +324,7 @@ impl AudioAnalyzer {
 }
 
 /// Compares two audio streams.
-pub struct AudioComparator {
+pub struct Comparator {
     src_path: PathBuf,
     dst_path: PathBuf,
     hash_match_threshold: u16,
@@ -333,7 +333,7 @@ pub struct AudioComparator {
     minimum_ending_duration: Duration,
 }
 
-impl AudioComparator {
+impl Comparator {
     pub const DEFAULT_HASH_MATCH_THRESHOLD: u16 = 15;
     pub const DEFAULT_OPENING_SEARCH_PERCENTAGE: f32 = 0.75;
     pub const DEFAULT_MIN_OPENING_DURATION: u16 = 20; // seconds
@@ -564,11 +564,11 @@ impl AudioComparator {
             let src_data_path = self
                 .src_path
                 .clone()
-                .with_extension(AudioAnalyzer::FRAME_HASH_DATA_FILE_EXT);
+                .with_extension(Analyzer::FRAME_HASH_DATA_FILE_EXT);
             let dst_data_path = self
                 .dst_path
                 .clone()
-                .with_extension(AudioAnalyzer::FRAME_HASH_DATA_FILE_EXT);
+                .with_extension(Analyzer::FRAME_HASH_DATA_FILE_EXT);
             if !src_data_path.exists() {
                 return Err(Error::FrameHashDataNotFound(src_data_path).into());
             }
@@ -593,13 +593,13 @@ impl AudioComparator {
             // Otherwise, compute the hash data now by analyzing the video files.
             tracing::info!("starting in-place video analysis...");
 
-            let src_analyzer = AudioAnalyzer::new(self.src_path.clone(), false)?;
-            let dst_analyzer = AudioAnalyzer::new(self.dst_path.clone(), false)?;
+            let src_analyzer = Analyzer::new(self.src_path.clone(), false)?;
+            let dst_analyzer = Analyzer::new(self.dst_path.clone(), false)?;
 
             let dst_handle = std::thread::spawn(move || {
                 let result = dst_analyzer.run(
-                    AudioAnalyzer::DEFAULT_HASH_PERIOD,
-                    AudioAnalyzer::DEFAULT_HASH_DURATION,
+                    Analyzer::DEFAULT_HASH_PERIOD,
+                    Analyzer::DEFAULT_HASH_DURATION,
                     false,
                 );
                 tracing::info!("completed analysis for dst");
@@ -607,8 +607,8 @@ impl AudioComparator {
             });
 
             let src_frame_hashes = src_analyzer.run(
-                AudioAnalyzer::DEFAULT_HASH_PERIOD,
-                AudioAnalyzer::DEFAULT_HASH_DURATION,
+                Analyzer::DEFAULT_HASH_PERIOD,
+                Analyzer::DEFAULT_HASH_DURATION,
                 false,
             )?;
             tracing::info!("completed analysis for src");
