@@ -659,6 +659,7 @@ dependencies = [
  "num-traits",
  "rayon",
  "serde",
+ "serde_json",
  "thiserror",
  "tracing",
  "tracing-subscriber",

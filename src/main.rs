@@ -121,6 +121,22 @@ enum Commands {
             help = "Run the analysis step in-place instead of looking for pre-computed hash data."
         )]
         analyze: bool,
+
+        #[clap(
+            long,
+            default_value = "false",
+            action(ArgAction::SetTrue),
+            help = "Create skip files. These are JSON files that store the result of the search alongside each video file."
+        )]
+        create_skip_files: bool,
+
+        #[clap(
+            long,
+            default_value = "false",
+            action(ArgAction::SetTrue),
+            help = "Do not display results of the search in stdout."
+        )]
+        no_display: bool,
     },
 }
 
@@ -272,6 +288,8 @@ fn main() {
             min_opening_duration,
             min_ending_duration,
             analyze,
+            no_display,
+            create_skip_files,
             ..
         } => {
             if video_files.len() < 2 {
@@ -294,7 +312,7 @@ fn main() {
                 Duration::from_secs(min_ending_duration.into()),
             )
             .unwrap();
-            audio_comparator.run(analyze).unwrap();
+            audio_comparator.run(analyze, !no_display, create_skip_files).unwrap();
         }
     }
 }

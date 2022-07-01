@@ -12,7 +12,8 @@ use super::simhash::simhash32;
 use super::util;
 use super::Error;
 
-const DEFAULT_FRAME_HASH_DATA_EXT: &str = "needle.bin";
+const FRAME_HASH_DATA_FILE_EXT: &str = "needle.bin";
+const SKIP_FILE_EXT: &str = "needle.skip.json";
 
 // Defaults
 pub const DEFAULT_HASH_PERIOD: f32 = 0.3;
@@ -321,7 +322,7 @@ impl AudioAnalyzer {
 
         // Write results to disk.
         if persist {
-            let mut f = std::fs::File::create(path.with_extension(DEFAULT_FRAME_HASH_DATA_EXT))?;
+            let mut f = std::fs::File::create(path.with_extension(FRAME_HASH_DATA_FILE_EXT))?;
             bincode::serialize_into(&mut f, &frame_hashes)?;
         }
 
@@ -556,7 +557,7 @@ impl AudioComparator {
         }
     }
 
-    pub fn run(&self, analyze: bool) -> anyhow::Result<()> {
+    pub fn run(&self, analyze: bool, display: bool, create_skip_files: bool) -> anyhow::Result<()> {
         tracing::info!("started audio comparator");
 
         let (src_frame_hashes, dst_frame_hashes) = if !analyze {
@@ -564,11 +565,11 @@ impl AudioComparator {
             let src_data_path = self
                 .src_path
                 .clone()
-                .with_extension(DEFAULT_FRAME_HASH_DATA_EXT);
+                .with_extension(FRAME_HASH_DATA_FILE_EXT);
             let dst_data_path = self
                 .dst_path
                 .clone()
-                .with_extension(DEFAULT_FRAME_HASH_DATA_EXT);
+                .with_extension(FRAME_HASH_DATA_FILE_EXT);
             if !src_data_path.exists() {
                 return Err(Error::FrameHashDataNotFound(src_data_path).into());
             }
@@ -602,7 +603,8 @@ impl AudioComparator {
                 result
             });
 
-            let src_frame_hashes = src_analyzer.run(DEFAULT_HASH_PERIOD, DEFAULT_HASH_DURATION, false)?;
+            let src_frame_hashes =
+                src_analyzer.run(DEFAULT_HASH_PERIOD, DEFAULT_HASH_DURATION, false)?;
             tracing::info!("completed analysis for src");
             let dst_frame_hashes = dst_handle.join().unwrap()?;
 
@@ -610,11 +612,67 @@ impl AudioComparator {
         };
 
         tracing::info!("starting search for opening and ending");
-        let info =
-            self.find_opening_and_ending(&src_frame_hashes.data, &dst_frame_hashes.data);
+        let info = self.find_opening_and_ending(&src_frame_hashes.data, &dst_frame_hashes.data);
         tracing::info!("finished search for opening and ending");
 
-        self.display_opening_ending_info(&info);
+        if display {
+            self.display_opening_ending_info(&info);
+        }
+        if create_skip_files {
+            self.create_skip_files(&info)?;
+        }
+
+        Ok(())
+    }
+
+    fn create_skip_files(&self, info: &OpeningAndEndingInfo) -> anyhow::Result<()> {
+        let src_skip_file = self.src_path.clone().with_extension(SKIP_FILE_EXT);
+        let dst_skip_file = self.dst_path.clone().with_extension(SKIP_FILE_EXT);
+        let mut src_skip_file = std::fs::File::create(src_skip_file)?;
+        let mut dst_skip_file = std::fs::File::create(dst_skip_file)?;
+
+        // Convert opening and ending entries into f32 tuples to be serialized to JSON.
+        let src_opening = info.src_openings.first().map(|d| {
+            (
+                d.src_longest_run.0.as_secs_f32(),
+                d.src_longest_run.1.as_secs_f32(),
+            )
+        });
+        let src_ending = info.src_endings.first().map(|d| {
+            (
+                d.src_longest_run.0.as_secs_f32(),
+                d.src_longest_run.1.as_secs_f32(),
+            )
+        });
+        let dst_opening = info.dst_openings.first().map(|d| {
+            (
+                d.dst_longest_run.0.as_secs_f32(),
+                d.dst_longest_run.1.as_secs_f32(),
+            )
+        });
+        let dst_ending = info.dst_endings.first().map(|d| {
+            (
+                d.dst_longest_run.0.as_secs_f32(),
+                d.dst_longest_run.1.as_secs_f32(),
+            )
+        });
+
+        // Write the JSON files to disk only if we have detected either the opening or the ending.
+        if !src_opening.is_none() || !src_ending.is_none() {
+            let src_skip_file_data = serde_json::json!({
+                "opening": src_opening,
+                "ending": src_ending,
+            });
+            serde_json::to_writer(&mut src_skip_file, &src_skip_file_data)?;
+        }
+        if !dst_opening.is_none() || !dst_ending.is_none() {
+            let dst_skip_file_data = serde_json::json!({
+                "opening": dst_opening,
+                "ending": dst_ending,
+            });
+
+            serde_json::to_writer(&mut dst_skip_file, &dst_skip_file_data)?;
+        }
 
         Ok(())
     }
