@@ -72,7 +72,7 @@ enum Commands {
     },
     #[clap(
         arg_required_else_help = true,
-        after_help = "Search for openings and endings among a group of videos using frame hash data. Hash data can either be pre-computed using the 'analyze' command or generated as part of the search. Note that precomputation saves a ton of time."
+        after_help = "Search for openings and endings among a group of videos using frame hash data. Hash data can either be pre-computed and stored alongside video files using the 'analyze' command, or generated as part of the search by specifying the --analyze flag. Note that precomputation saves a ton of time."
     )]
     Search {
         #[clap(
