@@ -720,33 +720,8 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
 
         Ok(info)
     }
-
-    #[cfg(not(feature = "rayon"))]
-    pub fn run(&self, analyze: bool, display: bool, create_skip_files: bool) -> anyhow::Result<()> {
-        let mut pairs = Vec::new();
-        let mut processed_videos = HashSet::new();
-        for (i, v1) in self.videos.iter().enumerate() {
-            let v1 = v1.as_ref();
-            for (j, v2) in self.videos.iter().enumerate() {
-                let v2 = v2.as_ref();
-                if i == j || processed_videos.contains(v2) {
-                    continue;
-                }
-                pairs.push((v1, v2));
-            }
-            processed_videos.insert(v1);
-        }
-
-        pairs.iter().for_each(|(src_path, dst_path)| {
-            self.search(src_path, dst_path, analyze, display, create_skip_files)
-                .unwrap();
-        });
-
-        Ok(())
-    }
 }
 
-#[cfg(feature = "rayon")]
 impl<'a, T: AsRef<Path> + std::marker::Sync> Comparator<'a, T> {
     pub fn run(&self, analyze: bool, display: bool, create_skip_files: bool) -> anyhow::Result<()> {
         let mut pairs = Vec::new();
@@ -763,7 +738,13 @@ impl<'a, T: AsRef<Path> + std::marker::Sync> Comparator<'a, T> {
             processed_videos.insert(v1);
         }
 
+        #[cfg(feature = "rayon")]
         pairs.par_iter().for_each(|(src_path, dst_path)| {
+            self.search(src_path, dst_path, analyze, display, create_skip_files)
+                .unwrap();
+        });
+        #[cfg(not(feature = "rayon"))]
+        pairs.iter().for_each(|(src_path, dst_path)| {
             self.search(src_path, dst_path, analyze, display, create_skip_files)
                 .unwrap();
         });
