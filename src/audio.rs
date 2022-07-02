@@ -363,7 +363,7 @@ impl<P: AsRef<Path>> Analyzer<P> {
 /// Compares two audio streams.
 pub struct Comparator<'a, P: AsRef<Path>> {
     videos: &'a [P],
-    hash_match_threshold: u16,
+    hash_match_threshold: u32,
     opening_search_percentage: f32,
     min_opening_duration: Duration,
     min_ending_duration: Duration,
@@ -381,7 +381,7 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
     ) -> Self {
         Self {
             videos,
-            hash_match_threshold,
+            hash_match_threshold: hash_match_threshold as u32,
             opening_search_percentage,
             min_opening_duration,
             min_ending_duration,
@@ -389,89 +389,54 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
         }
     }
 
-    // TODO(aksiksi): Document this.
-    fn sliding_window_analyzer(
+    /// Runs a LCS (longest common substring) search between the two sets of hashes. This runs in
+    /// O(n * m) time.
+    fn longest_common_hash_match(
         &self,
         src: &[(u32, Duration)],
         dst: &[(u32, Duration)],
+        src_max_opening_time: Duration,
+        dst_max_opening_time: Duration,
         src_hash_duration: Duration,
         dst_hash_duration: Duration,
         heap: &mut ComparatorHeap,
-        reverse: bool,
     ) {
-        let threshold = self.hash_match_threshold as u32;
-        let mut n = 1;
+        let mut table: Vec<Vec<usize>> = vec![vec![0; dst.len() + 1]; src.len() + 1];
 
-        while n <= dst.len() {
-            let src_end = usize::min(n, src.len());
-            let dst_start = dst.len() - n;
-            let src_hashes = &src[..src_end];
-            let dst_hashes = &dst[dst_start..];
+        for i in 0..src.len() {
+            for j in 0..dst.len() {
+                let (src_hash, dst_hash) = (src[i].0, dst[j].0);
 
-            let mut in_run = false;
-            let mut run_len = 0;
-            let mut max_run_len = 0;
-            let mut src_run_start_idx = 0;
-            let mut dst_run_start_idx = 0;
-            let mut src_longest_run = Default::default();
-            let mut dst_longest_run = Default::default();
+                if i == 0 || j == 0 {
+                    table[i][j] = 0;
+                } else if u32::count_ones(src_hash ^ dst_hash) <= self.hash_match_threshold {
+                    table[i][j] = table[i - 1][j - 1] + 1;
 
-            for ((i, (src_hash, _)), (j, (dst_hash, _))) in src_hashes
-                .iter()
-                .enumerate()
-                .zip(dst_hashes.iter().enumerate())
-            {
-                let d = u32::count_ones(src_hash ^ dst_hash);
-                if d < threshold {
-                    if in_run {
-                        run_len += 1;
-                    } else {
-                        in_run = true;
-                        run_len = 1;
-                        src_run_start_idx = i;
-                        dst_run_start_idx = j;
+                    let (src_start, src_end) = (src[i - table[i][j]].1, src[i].1);
+                    let (dst_start, dst_end) = (dst[j - table[i][j]].1, dst[j].1);
+                    let is_src_opening = src_end < src_max_opening_time;
+                    let is_dst_opening = dst_end < dst_max_opening_time;
+
+                    let is_valid = (is_src_opening
+                        && (src_end - src_start) >= self.min_opening_duration)
+                        || (!is_src_opening && (src_end - src_start) >= self.min_ending_duration)
+                        || (is_dst_opening && (dst_end - dst_start) >= self.min_opening_duration)
+                        || (!is_dst_opening && (dst_end - dst_start) >= self.min_ending_duration);
+
+                    if is_valid {
+                        let entry = ComparatorHeapEntry {
+                            score: table[i][j],
+                            src_longest_run: (src_start, src_end),
+                            dst_longest_run: (dst_start, dst_end),
+                            src_hash_duration,
+                            dst_hash_duration,
+                        };
+                        heap.push(entry);
                     }
-                } else if in_run {
-                    in_run = false;
-                    if run_len >= max_run_len {
-                        max_run_len = run_len;
-                        src_longest_run = (
-                            src_hashes[src_run_start_idx].1,
-                            src_hashes[src_run_start_idx + run_len].1,
-                        );
-                        dst_longest_run = (
-                            dst_hashes[dst_run_start_idx].1,
-                            dst_hashes[dst_run_start_idx + run_len].1,
-                        );
-                    }
+                } else {
+                    table[i][j] = 0;
                 }
             }
-
-            let score = max_run_len;
-
-            let entry = if !reverse {
-                ComparatorHeapEntry {
-                    score,
-                    src_longest_run,
-                    dst_longest_run,
-                    src_hash_duration,
-                    dst_hash_duration,
-                }
-            } else {
-                ComparatorHeapEntry {
-                    score,
-                    src_longest_run: dst_longest_run,
-                    dst_longest_run: src_longest_run,
-                    src_hash_duration: dst_hash_duration,
-                    dst_hash_duration: src_hash_duration,
-                }
-            };
-
-            if score > 0 {
-                heap.push(entry);
-            }
-
-            n += 1;
         }
     }
 
@@ -494,77 +459,20 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
             (src_hash_data.len() as f32 * self.opening_search_percentage) as usize;
         let dst_partition_idx =
             (dst_hash_data.len() as f32 * self.opening_search_percentage) as usize;
+        let src_max_opening_time = src_hash_data[src_partition_idx].1;
+        let dst_max_opening_time = dst_hash_data[dst_partition_idx].1;
 
-        // We do a single search for opening and ending in the source and dest.
-        //
-        // Intuition:
-        //
-        // (1)
-        //               [ --- src --- ]
-        // [ --- dst --- ]
-        //
-        //               [ --- src --- ]
-        //       [ --- dst --- ]
-        //
-        //               [ --- src --- ]
-        //               [ --- dst --- ]
-        //
-        // (2)
-        //               [ --- dst --- ]
-        // [ --- src --- ]
-        //
-        //               [ --- dst --- ]
-        //       [ --- src --- ]
-        //
-        //               [ --- dst --- ]
-        //               [ --- src --- ]
-        //
-        // When one is shorter than the other:
-        //
-        // (1)
-        //               [ --- src --- ]
-        //     [ - dst - ]
-        //
-        //               [ --- src --- ]
-        //          [ - dst - ]
-        //
-        //               [ --- src --- ]
-        //               [ - dst - ]
-        //
-        // (2)
-        //               [ - dst - ]
-        // [ --- src --- ]
-        //
-        //               [ - dst - ]
-        //     [ --- src --- ]
-        //
-        //               [ - dst - ]
-        //           [ --- src --- ]
-        //
-        //               [ - dst - ]
-        //               [ --- src --- ]
-        self.sliding_window_analyzer(
+        self.longest_common_hash_match(
             src_hash_data,
             dst_hash_data,
+            src_max_opening_time,
+            dst_max_opening_time,
             src_hash_duration,
             dst_hash_duration,
             &mut heap,
-            false,
-        );
-        self.sliding_window_analyzer(
-            dst_hash_data,
-            src_hash_data,
-            dst_hash_duration,
-            src_hash_duration,
-            &mut heap,
-            true,
         );
 
         tracing::debug!(heap_size = heap.len(), "finished sliding window analysis");
-
-        // Next, we'll use the `opening_search_percentage` to determine which is an opening and which is an ending.
-        let src_max_opening_time = src_hash_data[src_partition_idx].1;
-        let dst_max_opening_time = dst_hash_data[dst_partition_idx].1;
 
         let (mut src_valid_openings, mut src_valid_endings) = (Vec::new(), Vec::new());
         let (mut dst_valid_openings, mut dst_valid_endings) = (Vec::new(), Vec::new());
