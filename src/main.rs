@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -85,7 +84,7 @@ enum Commands {
 
         #[clap(
             long,
-            default_value_t = audio::Comparator::DEFAULT_HASH_MATCH_THRESHOLD,
+            default_value_t = audio::DEFAULT_HASH_MATCH_THRESHOLD,
             value_parser = clap::value_parser!(u16),
             help = "Threshold to use when comparing hashes. The range is 0 (exact match) to 32 (no match).",
         )]
@@ -93,7 +92,7 @@ enum Commands {
 
         #[clap(
             long,
-            default_value_t = audio::Comparator::DEFAULT_OPENING_SEARCH_PERCENTAGE,
+            default_value_t = audio::DEFAULT_OPENING_SEARCH_PERCENTAGE,
             value_parser = clap::value_parser!(f32),
             help = "Specifies which portion of the video the opening and ending should be in. For example, if set to 0.75, a match found in the first 75% of the video will be considered the opening, while a match in the last 25% will be considered the ending."
         )]
@@ -101,7 +100,7 @@ enum Commands {
 
         #[clap(
             long,
-            default_value_t = audio::Comparator::DEFAULT_MIN_OPENING_DURATION,
+            default_value_t = audio::DEFAULT_MIN_OPENING_DURATION,
             value_parser = clap::value_parser!(u16),
             help = "Minimum opening duration, in seconds. Setting a value that is close to the actual length helps reduce false positives (i.e., detecting an opening when there isn't one)."
         )]
@@ -109,7 +108,7 @@ enum Commands {
 
         #[clap(
             long,
-            default_value_t = audio::Comparator::DEFAULT_MIN_ENDING_DURATION,
+            default_value_t = audio::DEFAULT_MIN_ENDING_DURATION,
             value_parser = clap::value_parser!(u16),
             help = "Minimum ending duration, in seconds. Setting a value that is close to the actual length helps reduce false positives (i.e., detecting an ending when there isn't one)."
         )]
@@ -307,37 +306,14 @@ fn main() -> anyhow::Result<()> {
             }
             let min_opening_duration = Duration::from_secs(min_opening_duration.into());
             let min_ending_duration = Duration::from_secs(min_ending_duration.into());
-
-            // Build a list of comparators by generating all unique pairs of videos from the set of provided
-            // video file paths. Given N paths, this would result in: (N * (N-1)) / 2 comparators.
-            let mut comparators = Vec::new();
-            let mut processed_videos = HashSet::new();
-            for (i, v1) in video_files.iter().enumerate() {
-                for (j, v2) in video_files.iter().enumerate() {
-                    if i == j || processed_videos.contains(v2) {
-                        continue;
-                    }
-                    let c = audio::Comparator::from_files(
-                        v1,
-                        v2,
-                        hash_match_threshold,
-                        opening_search_percentage,
-                        min_opening_duration,
-                        min_ending_duration,
-                    )?;
-                    comparators.push(c);
-                }
-                processed_videos.insert(v1);
-            }
-
-            #[cfg(feature = "rayon")]
-            comparators.par_iter().for_each(|c| {
-                c.run(analyze, !no_display, create_skip_files).unwrap();
-            });
-            #[cfg(not(feature = "rayon"))]
-            comparators.iter().for_each(|c| {
-                c.run(analyze, !no_display, create_skip_files).unwrap();
-            });
+            let comparator = audio::Comparator::from_files(
+                &video_files,
+                hash_match_threshold,
+                opening_search_percentage,
+                min_opening_duration,
+                min_ending_duration,
+            );
+            comparator.run(analyze, !no_display, create_skip_files)?;
         }
     }
 
