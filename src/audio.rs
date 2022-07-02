@@ -81,6 +81,8 @@ struct ComparatorHeapEntry {
     score: usize,
     src_longest_run: (Duration, Duration),
     dst_longest_run: (Duration, Duration),
+    src_hash_duration: Duration,
+    dst_hash_duration: Duration,
 }
 
 impl Display for ComparatorHeapEntry {
@@ -392,6 +394,8 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
         &self,
         src: &[(u32, Duration)],
         dst: &[(u32, Duration)],
+        src_hash_duration: Duration,
+        dst_hash_duration: Duration,
         heap: &mut ComparatorHeap,
         reverse: bool,
     ) {
@@ -450,12 +454,16 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
                     score,
                     src_longest_run,
                     dst_longest_run,
+                    src_hash_duration,
+                    dst_hash_duration,
                 }
             } else {
                 ComparatorHeapEntry {
                     score,
-                    dst_longest_run: src_longest_run,
                     src_longest_run: dst_longest_run,
+                    dst_longest_run: src_longest_run,
+                    src_hash_duration: dst_hash_duration,
+                    dst_hash_duration: src_hash_duration,
                 }
             };
 
@@ -469,16 +477,23 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
 
     fn find_opening_and_ending(
         &self,
-        src_hashes: &[(u32, Duration)],
-        dst_hashes: &[(u32, Duration)],
+        src_hashes: &FrameHashes,
+        dst_hashes: &FrameHashes,
     ) -> OpeningAndEndingInfo {
         let _g = tracing::span!(tracing::Level::TRACE, "find_opening_and_ending");
 
-        let mut heap: ComparatorHeap =
-            BinaryHeap::with_capacity(src_hashes.len() + dst_hashes.len());
+        let src_hash_data = &src_hashes.data;
+        let dst_hash_data = &dst_hashes.data;
+        let src_hash_duration = Duration::from_secs_f32(src_hashes.hash_duration);
+        let dst_hash_duration = Duration::from_secs_f32(dst_hashes.hash_duration);
 
-        let src_partition_idx = (src_hashes.len() as f32 * self.opening_search_percentage) as usize;
-        let dst_partition_idx = (dst_hashes.len() as f32 * self.opening_search_percentage) as usize;
+        let mut heap: ComparatorHeap =
+            BinaryHeap::with_capacity(src_hash_data.len() + dst_hash_data.len());
+
+        let src_partition_idx =
+            (src_hash_data.len() as f32 * self.opening_search_percentage) as usize;
+        let dst_partition_idx =
+            (dst_hash_data.len() as f32 * self.opening_search_percentage) as usize;
 
         // We do a single search for opening and ending in the source and dest.
         //
@@ -528,14 +543,28 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
         //
         //               [ - dst - ]
         //               [ --- src --- ]
-        self.sliding_window_analyzer(src_hashes, dst_hashes, &mut heap, false);
-        self.sliding_window_analyzer(dst_hashes, src_hashes, &mut heap, true);
+        self.sliding_window_analyzer(
+            src_hash_data,
+            dst_hash_data,
+            src_hash_duration,
+            dst_hash_duration,
+            &mut heap,
+            false,
+        );
+        self.sliding_window_analyzer(
+            dst_hash_data,
+            src_hash_data,
+            dst_hash_duration,
+            src_hash_duration,
+            &mut heap,
+            true,
+        );
 
         tracing::info!(heap_size = heap.len(), "finished sliding window analysis");
 
         // Next, we'll use the `opening_search_percentage` to determine which is an opening and which is an ending.
-        let src_max_opening_time = src_hashes[src_partition_idx].1;
-        let dst_max_opening_time = dst_hashes[dst_partition_idx].1;
+        let src_max_opening_time = src_hash_data[src_partition_idx].1;
+        let dst_max_opening_time = dst_hash_data[dst_partition_idx].1;
 
         let (mut src_valid_openings, mut src_valid_endings) = (Vec::new(), Vec::new());
         let (mut dst_valid_openings, mut dst_valid_endings) = (Vec::new(), Vec::new());
@@ -667,7 +696,7 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
         };
 
         tracing::info!("starting search for opening and ending");
-        let info = self.find_opening_and_ending(&src_frame_hashes.data, &dst_frame_hashes.data);
+        let info = self.find_opening_and_ending(&src_frame_hashes, &dst_frame_hashes);
         tracing::info!("finished search for opening and ending");
 
         Ok(info)
@@ -677,10 +706,7 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
     ///
     /// The idea is simple: keep track of the longest opening and ending detected among all of the matches
     /// and combine them to determine the best overall match.
-    fn find_best_match(
-        &self,
-        matches: &[(&OpeningAndEndingInfo, bool)],
-    ) -> Option<SearchResult> {
+    fn find_best_match(&self, matches: &[(&OpeningAndEndingInfo, bool)]) -> Option<SearchResult> {
         // TODO(aksiksi): Use the number of distinct matches along with duration. For example, it could be that the longest
         // opening was not actually the opening but instead a montage song found in one or two other episodes.
         if matches.len() == 0 {
@@ -695,31 +721,45 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
             let opening;
             let ending;
             if *is_source {
-                opening = m.src_openings.first().map(|e| e.src_longest_run);
-                ending = m.src_endings.first().map(|e| e.src_longest_run);
+                opening = m
+                    .src_openings
+                    .first()
+                    .map(|e| (e.src_longest_run, e.src_hash_duration));
+                ending = m
+                    .src_endings
+                    .first()
+                    .map(|e| (e.src_longest_run, e.src_hash_duration));
             } else {
-                opening = m.dst_openings.first().map(|e| e.dst_longest_run);
-                ending = m.dst_endings.first().map(|e| e.dst_longest_run);
+                opening = m
+                    .dst_openings
+                    .first()
+                    .map(|e| (e.dst_longest_run, e.dst_hash_duration));
+                ending = m
+                    .dst_endings
+                    .first()
+                    .map(|e| (e.dst_longest_run, e.dst_hash_duration));
             }
 
-            if let Some((start, end)) = opening {
+            if let Some(((start, end), hash_duration)) = opening {
                 let duration = end - start;
                 if duration >= best_opening_duration {
                     result.opening = Some((
                         // Add a buffer between actual detected times and what we return to users.
                         start + self.time_padding,
-                        end - self.time_padding,
+                        // Adjust ending time using the configured hash duration.
+                        end - self.time_padding - hash_duration,
                     ));
                     best_opening_duration = duration;
                 }
             }
-            if let Some((start, end)) = ending {
+            if let Some(((start, end), hash_duration)) = ending {
                 let duration = end - start;
                 if duration >= best_ending_duration {
                     result.ending = Some((
                         // Add a buffer between actual detected times and what we return to users.
                         start + self.time_padding,
-                        end - self.time_padding,
+                        // Adjust ending time using the configured hash duration.
+                        end - self.time_padding - hash_duration,
                     ));
                     best_ending_duration = duration;
                 }
