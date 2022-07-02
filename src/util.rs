@@ -24,10 +24,15 @@ pub fn format_time(t: Duration) -> String {
 
 pub fn is_valid_video_file(path: impl AsRef<Path>, audio: bool) -> bool {
     if let Ok(input) = ffmpeg_next::format::input(&path.as_ref()) {
-        // If audio is required, make sure we have at least 1 audio stream available.
-        !audio || input.streams().filter(|s| {
-            s.parameters().medium() == ffmpeg_next::util::media::Type::Audio
-        }).count() != 0
+        let num_video_streams = input
+            .streams()
+            .filter(|s| s.parameters().medium() == ffmpeg_next::util::media::Type::Video)
+            .count();
+        let num_audio_streams = input
+            .streams()
+            .filter(|s| s.parameters().medium() == ffmpeg_next::util::media::Type::Audio)
+            .count();
+        num_video_streams > 0 && (!audio || num_audio_streams > 0)
     } else {
         false
     }
