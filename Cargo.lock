@@ -512,6 +512,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "infer"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e035cede526e0b21d5adffc9fa0eb4ef5d6026fe9c5b0bfe8084b9472b587a55"
+
+[[package]]
 name = "inflate"
 version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -656,6 +662,7 @@ dependencies = [
  "clap",
  "ffmpeg-next",
  "image",
+ "infer",
  "num-traits",
  "rayon",
  "serde",

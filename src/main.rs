@@ -153,6 +153,24 @@ enum Commands {
 struct Cli {
     #[clap(subcommand)]
     command: Commands,
+
+    #[clap(
+        long,
+        global = true,
+        default_value = "false",
+        action(ArgAction::SetTrue),
+        help = "By default, video files are validated using ffmpeg, which is extremely accurate. Setting this flag will switch to just checking file headers."
+    )]
+    file_headers_only: bool,
+
+    #[clap(
+        long,
+        global = true,
+        default_value = "false",
+        action(ArgAction::SetTrue),
+        help = "Videos will not be validated all. In other words, all files and directory contents will be assumed to be videos."
+    )]
+    disable_video_validation: bool,
 }
 
 impl Cli {
@@ -222,6 +240,8 @@ impl Cli {
             }
         }
 
+        let full_validation = !self.file_headers_only;
+
         // Find valid video files.
         let mut valid_video_files = Vec::new();
         for path in self.videos() {
@@ -233,11 +253,20 @@ impl Cli {
                             let entry = p.unwrap();
                             entry.path()
                         })
-                        .filter(|p| util::is_valid_video_file(p, !cfg!(feature = "video")))
+                        .filter(|p| {
+                            self.disable_video_validation
+                                || util::is_valid_video_file(
+                                    p,
+                                    !cfg!(feature = "video"),
+                                    full_validation,
+                                )
+                        })
                         .collect::<Vec<_>>(),
                 );
             } else {
-                if util::is_valid_video_file(path, !cfg!(feature = "video")) {
+                if self.disable_video_validation
+                    || util::is_valid_video_file(path, !cfg!(feature = "video"), full_validation)
+                {
                     valid_video_files.push(path.clone());
                 }
             }

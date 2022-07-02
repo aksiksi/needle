@@ -1,5 +1,5 @@
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::io::{Write, Read};
+use std::path::Path;
 use std::time::Duration;
 
 #[allow(unused)]
@@ -22,7 +22,14 @@ pub fn format_time(t: Duration) -> String {
     format!("{:02}:{:02}s", minutes, seconds)
 }
 
-pub fn is_valid_video_file(path: impl AsRef<Path>, audio: bool) -> bool {
+pub fn is_valid_video_file(path: impl AsRef<Path>, audio: bool, full: bool) -> bool {
+    if !full {
+        let mut buf = [0u8; 8192];
+        let mut f = std::fs::File::open(path.as_ref()).unwrap();
+        f.read(&mut buf).unwrap();
+        return infer::is_video(&buf);
+    }
+
     if let Ok(input) = ffmpeg_next::format::input(&path.as_ref()) {
         let num_video_streams = input
             .streams()
@@ -36,15 +43,4 @@ pub fn is_valid_video_file(path: impl AsRef<Path>, audio: bool) -> bool {
     } else {
         false
     }
-}
-
-#[allow(unused)]
-pub fn find_all_video_files(paths: &[impl AsRef<Path>], audio: bool) -> Vec<PathBuf> {
-    let mut video_files: Vec<PathBuf> = Vec::new();
-    for p in paths {
-        if is_valid_video_file(p, audio) {
-            video_files.push(p.as_ref().to_owned());
-        }
-    }
-    video_files
 }
