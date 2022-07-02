@@ -81,6 +81,8 @@ struct ComparatorHeapEntry {
     score: usize,
     src_longest_run: (Duration, Duration),
     dst_longest_run: (Duration, Duration),
+    is_src_opening: bool,
+    is_dst_opening: bool,
     src_hash_duration: Duration,
     dst_hash_duration: Duration,
 }
@@ -428,6 +430,8 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
                             score: table[i][j],
                             src_longest_run: (src_start, src_end),
                             dst_longest_run: (dst_start, dst_end),
+                            is_src_opening,
+                            is_dst_opening,
                             src_hash_duration,
                             dst_hash_duration,
                         };
@@ -478,29 +482,15 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
         let (mut dst_valid_openings, mut dst_valid_endings) = (Vec::new(), Vec::new());
 
         while let Some(entry) = heap.pop() {
-            let (src_start, src_end) = entry.src_longest_run;
-            let (dst_start, dst_end) = entry.dst_longest_run;
-            let (src_duration, dst_duration) = (src_end - src_start, dst_end - dst_start);
-
-            let valid_duration = src_duration >= self.min_opening_duration
-                || src_duration >= self.min_ending_duration
-                || dst_duration >= self.min_opening_duration
-                || dst_duration >= self.min_ending_duration;
-            if !valid_duration {
-                break;
-            }
-
-            if src_duration >= self.min_opening_duration && src_end <= src_max_opening_time {
+            let (is_src_opening, is_dst_opening) = (entry.is_src_opening, entry.is_dst_opening);
+            if is_src_opening {
                 src_valid_openings.push(entry.clone());
-            } else if src_duration >= self.min_ending_duration && src_start >= src_max_opening_time
-            {
+            } else {
                 src_valid_endings.push(entry.clone());
             }
-
-            if dst_duration >= self.min_opening_duration && dst_end <= dst_max_opening_time {
+            if is_dst_opening {
                 dst_valid_openings.push(entry.clone());
-            } else if dst_duration >= self.min_ending_duration && dst_start >= dst_max_opening_time
-            {
+            } else {
                 dst_valid_endings.push(entry.clone());
             }
         }
