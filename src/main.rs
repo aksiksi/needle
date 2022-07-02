@@ -94,9 +94,17 @@ enum Commands {
             long,
             default_value_t = audio::DEFAULT_OPENING_SEARCH_PERCENTAGE,
             value_parser = clap::value_parser!(f32),
-            help = "Specifies which portion of the video the opening and ending should be in. For example, if set to 0.75, a match found in the first 75% of the video will be considered the opening, while a match in the last 25% will be considered the ending."
+            help = "Specifies which portion of the start of the video the opening should be in. For example, if set to 0.25, only matches found in the first 25% of the video will be considered."
         )]
         opening_search_percentage: f32,
+
+        #[clap(
+            long,
+            default_value_t = audio::DEFAULT_ENDING_SEARCH_PERCENTAGE,
+            value_parser = clap::value_parser!(f32),
+            help = "Specifies which portion of the end of the video the ending should be in. For example, if set to 0.25, only matches found in the last 25% of the video will be considered."
+        )]
+        ending_search_percentage: f32,
 
         #[clap(
             long,
@@ -198,14 +206,22 @@ impl Cli {
                 }
             }
             Commands::Search {
-                hash_match_threshold,
                 opening_search_percentage,
+                ending_search_percentage,
+                hash_match_threshold,
                 ..
             } => {
                 if opening_search_percentage >= 1.0 {
                     cmd.error(
                         ErrorKind::InvalidValue,
                         "opening_search_percentage must be less than 1.0",
+                    )
+                    .exit();
+                }
+                if ending_search_percentage >= 1.0 {
+                    cmd.error(
+                        ErrorKind::InvalidValue,
+                        "ending_search_percentage must be less than 1.0",
                     )
                     .exit();
                 }
@@ -323,6 +339,7 @@ fn main() -> anyhow::Result<()> {
         Commands::Search {
             hash_match_threshold,
             opening_search_percentage,
+            ending_search_percentage,
             min_opening_duration,
             min_ending_duration,
             analyze,
@@ -349,6 +366,7 @@ fn main() -> anyhow::Result<()> {
                 &videos,
                 hash_match_threshold,
                 opening_search_percentage,
+                ending_search_percentage,
                 min_opening_duration,
                 min_ending_duration,
                 time_padding,

@@ -16,12 +16,13 @@ use super::util;
 use super::Error;
 
 pub const DEFAULT_HASH_MATCH_THRESHOLD: u16 = 15;
-pub const DEFAULT_OPENING_SEARCH_PERCENTAGE: f32 = 0.75;
+pub const DEFAULT_OPENING_SEARCH_PERCENTAGE: f32 = 0.33;
+pub const DEFAULT_ENDING_SEARCH_PERCENTAGE: f32 = 0.25;
 pub const DEFAULT_MIN_OPENING_DURATION: u16 = 20; // seconds
 pub const DEFAULT_MIN_ENDING_DURATION: u16 = 20; // seconds
 pub const DEFAULT_HASH_PERIOD: f32 = 0.3;
 pub const DEFAULT_HASH_DURATION: f32 = 3.0;
-pub const DEFAULT_OPENING_AND_ENDING_TIME_PADDING: f32 = 3.0; // seconds
+pub const DEFAULT_OPENING_AND_ENDING_TIME_PADDING: f32 = 0.0; // seconds
 
 const FRAME_HASH_DATA_FILE_EXT: &str = "needle.bin";
 const SKIP_FILE_EXT: &str = "needle.skip.json";
@@ -369,6 +370,7 @@ pub struct Comparator<'a, P: AsRef<Path>> {
     videos: &'a [P],
     hash_match_threshold: u32,
     opening_search_percentage: f32,
+    ending_search_percentage: f32,
     min_opening_duration: Duration,
     min_ending_duration: Duration,
     time_padding: Duration,
@@ -379,6 +381,7 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
         videos: &'a [P],
         hash_match_threshold: u16,
         opening_search_percentage: f32,
+        ending_search_percentage: f32,
         min_opening_duration: Duration,
         min_ending_duration: Duration,
         time_padding: Duration,
@@ -387,6 +390,7 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
             videos,
             hash_match_threshold: hash_match_threshold as u32,
             opening_search_percentage,
+            ending_search_percentage,
             min_opening_duration,
             min_ending_duration,
             time_padding,
@@ -406,7 +410,9 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
         src: &[(u32, Duration)],
         dst: &[(u32, Duration)],
         src_max_opening_time: Duration,
+        src_min_ending_time: Duration,
         dst_max_opening_time: Duration,
+        dst_min_ending_time: Duration,
         src_hash_duration: Duration,
         dst_hash_duration: Duration,
         heap: &mut ComparatorHeap,
@@ -447,14 +453,20 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
 
                 let (src_start, src_end) = (src[src_start_idx].1, src[src_end_idx].1);
                 let (dst_start, dst_end) = (dst[dst_start_idx].1, dst[dst_end_idx].1);
-                let is_src_opening = src_end < src_max_opening_time;
-                let is_dst_opening = dst_end < dst_max_opening_time;
+                let (is_src_opening, is_src_ending) = (
+                    src_end < src_max_opening_time,
+                    src_start > src_min_ending_time,
+                );
+                let (is_dst_opening, is_dst_ending) = (
+                    dst_end < dst_max_opening_time,
+                    dst_start > dst_min_ending_time,
+                );
 
                 let is_valid = (is_src_opening
                     && (src_end - src_start) >= self.min_opening_duration)
-                    || (!is_src_opening && (src_end - src_start) >= self.min_ending_duration)
+                    || (is_src_ending && (src_end - src_start) >= self.min_ending_duration)
                     || (is_dst_opening && (dst_end - dst_start) >= self.min_opening_duration)
-                    || (!is_dst_opening && (dst_end - dst_start) >= self.min_ending_duration);
+                    || (is_dst_ending && (dst_end - dst_start) >= self.min_ending_duration);
 
                 if is_valid {
                     let src_match_hash =
@@ -499,18 +511,27 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
         let mut heap: ComparatorHeap =
             BinaryHeap::with_capacity(src_hash_data.len() + dst_hash_data.len());
 
-        let src_partition_idx =
+        // Figure out the duration limits for opening and endings.
+        let src_opening_search_idx =
             (src_hash_data.len() as f32 * self.opening_search_percentage) as usize;
-        let dst_partition_idx =
+        let src_ending_search_idx =
+            (src_hash_data.len() as f32 * (1.0 - self.ending_search_percentage)) as usize;
+        let dst_opening_search_idx =
             (dst_hash_data.len() as f32 * self.opening_search_percentage) as usize;
-        let src_max_opening_time = src_hash_data[src_partition_idx].1;
-        let dst_max_opening_time = dst_hash_data[dst_partition_idx].1;
+        let dst_ending_search_idx =
+            (dst_hash_data.len() as f32 * (1.0 - self.ending_search_percentage)) as usize;
+        let src_max_opening_time = src_hash_data[src_opening_search_idx].1;
+        let src_min_ending_time = src_hash_data[src_ending_search_idx].1;
+        let dst_max_opening_time = dst_hash_data[dst_opening_search_idx].1;
+        let dst_min_ending_time = dst_hash_data[dst_ending_search_idx].1;
 
         self.longest_common_hash_match(
             src_hash_data,
             dst_hash_data,
             src_max_opening_time,
+            src_min_ending_time,
             dst_max_opening_time,
+            dst_min_ending_time,
             src_hash_duration,
             dst_hash_duration,
             &mut heap,
