@@ -48,7 +48,7 @@ enum Commands {
 
         #[clap(
             long,
-            default_value_t = audio::Analyzer::DEFAULT_HASH_PERIOD,
+            default_value_t = audio::DEFAULT_HASH_PERIOD,
             value_parser = clap::value_parser!(f32),
             help = "Period between hashes, in seconds. For example, if set to 0.3, a hash will be generated for every 300 ms of audio. Lowering this number can improve the accuracy of the result, at the cost of performance. The default aims to strike a balance between accuracy and performance."
         )]
@@ -56,7 +56,7 @@ enum Commands {
 
         #[clap(
             long,
-            default_value_t = audio::Analyzer::DEFAULT_HASH_DURATION,
+            default_value_t = audio::DEFAULT_HASH_DURATION,
             value_parser = clap::value_parser!(f32),
             help = "Duration of audio to hash, in seconds.",
         )]
@@ -250,7 +250,7 @@ fn main() -> anyhow::Result<()> {
 
     let args = Cli::parse();
     args.validate();
-    let video_files = args.find_video_files();
+    let videos = args.find_video_files();
 
     match args.command {
         Commands::Analyze {
@@ -263,8 +263,8 @@ fn main() -> anyhow::Result<()> {
             Mode::Audio => {
                 // Generate a list of analyzers, one per input video file.
                 let mut analyzers = Vec::new();
-                for video in video_files {
-                    analyzers.push(audio::Analyzer::new(&video, threaded_decoding)?);
+                for video in &videos {
+                    analyzers.push(audio::Analyzer::new(video, threaded_decoding)?);
                 }
 
                 #[cfg(feature = "rayon")]
@@ -293,13 +293,13 @@ fn main() -> anyhow::Result<()> {
             create_skip_files,
             ..
         } => {
-            if video_files.len() < 2 {
+            if videos.len() < 2 {
                 let mut cmd = Cli::command();
                 cmd.error(
                     ErrorKind::InvalidValue,
                     format!(
                     "need at least 2 valid video files, but only found {} in provided video paths",
-                    video_files.len()
+                    videos.len()
                 ),
                 )
                 .exit();
@@ -307,7 +307,7 @@ fn main() -> anyhow::Result<()> {
             let min_opening_duration = Duration::from_secs(min_opening_duration.into());
             let min_ending_duration = Duration::from_secs(min_ending_duration.into());
             let comparator = audio::Comparator::from_files(
-                &video_files,
+                &videos,
                 hash_match_threshold,
                 opening_search_percentage,
                 min_opening_duration,

@@ -4,7 +4,6 @@ extern crate ffmpeg_next;
 use std::collections::{BinaryHeap, HashSet};
 use std::fmt::Display;
 use std::path::Path;
-use std::path::PathBuf;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -20,6 +19,11 @@ pub const DEFAULT_HASH_MATCH_THRESHOLD: u16 = 15;
 pub const DEFAULT_OPENING_SEARCH_PERCENTAGE: f32 = 0.75;
 pub const DEFAULT_MIN_OPENING_DURATION: u16 = 20; // seconds
 pub const DEFAULT_MIN_ENDING_DURATION: u16 = 20; // seconds
+pub const DEFAULT_HASH_PERIOD: f32 = 0.3;
+pub const DEFAULT_HASH_DURATION: f32 = 3.0;
+
+const FRAME_HASH_DATA_FILE_EXT: &str = "needle.bin";
+const SKIP_FILE_EXT: &str = "needle.skip.json";
 
 // TODO: Include MD5 hash to avoid duplicating work.
 #[derive(Deserialize, Serialize)]
@@ -96,22 +100,15 @@ pub struct OpeningAndEndingInfo {
     dst_endings: Vec<ComparatorHeapEntry>,
 }
 
-pub struct Analyzer {
-    path: PathBuf,
+pub struct Analyzer<P: AsRef<Path>> {
+    path: P,
     threaded_decoding: bool,
 }
 
-impl Analyzer {
-    pub const DEFAULT_HASH_PERIOD: f32 = 0.3;
-    pub const DEFAULT_HASH_DURATION: f32 = 3.0;
-    const FRAME_HASH_DATA_FILE_EXT: &'static str = "needle.bin";
-
-    pub fn new<P>(path: P, threaded_decoding: bool) -> anyhow::Result<Self>
-    where
-        P: Into<PathBuf>,
-    {
+impl<P: AsRef<Path>> Analyzer<P> {
+    pub fn new(path: P, threaded_decoding: bool) -> anyhow::Result<Self> {
         Ok(Self {
-            path: path.into(),
+            path,
             threaded_decoding,
         })
     }
@@ -294,7 +291,7 @@ impl Analyzer {
         let span = tracing::span!(tracing::Level::TRACE, "run");
         let _enter = span.enter();
 
-        let path = self.path.clone();
+        let path = self.path.as_ref();
         let mut ctx = self.context()?;
         let stream = Self::find_best_audio_stream(&ctx);
         let stream_idx = stream.index();
@@ -324,7 +321,7 @@ impl Analyzer {
 
         // Write results to disk.
         if persist {
-            let mut f = std::fs::File::create(path.with_extension(Self::FRAME_HASH_DATA_FILE_EXT))?;
+            let mut f = std::fs::File::create(path.with_extension(FRAME_HASH_DATA_FILE_EXT))?;
             bincode::serialize_into(&mut f, &frame_hashes)?;
         }
 
@@ -333,26 +330,24 @@ impl Analyzer {
 }
 
 /// Compares two audio streams.
-pub struct Comparator<'a, T: AsRef<Path>> {
-    paths: &'a [T],
+pub struct Comparator<'a, P: AsRef<Path>> {
+    videos: &'a [P],
     hash_match_threshold: u16,
     opening_search_percentage: f32,
     min_opening_duration: Duration,
     min_ending_duration: Duration,
 }
 
-impl<'a, T: AsRef<Path>> Comparator<'a, T> {
-    const SKIP_FILE_EXT: &'static str = "needle.skip.json";
-
+impl<'a, P: AsRef<Path>> Comparator<'a, P> {
     pub fn from_files(
-        paths: &'a [T],
+        videos: &'a [P],
         hash_match_threshold: u16,
         opening_search_percentage: f32,
         min_opening_duration: Duration,
         min_ending_duration: Duration,
     ) -> Self {
         Self {
-            paths,
+            videos,
             hash_match_threshold,
             opening_search_percentage,
             min_opening_duration,
@@ -555,8 +550,8 @@ impl<'a, T: AsRef<Path>> Comparator<'a, T> {
         dst_path: &Path,
         info: &OpeningAndEndingInfo,
     ) -> anyhow::Result<()> {
-        let src_skip_file = src_path.clone().with_extension(Self::SKIP_FILE_EXT);
-        let dst_skip_file = dst_path.clone().with_extension(Self::SKIP_FILE_EXT);
+        let src_skip_file = src_path.clone().with_extension(SKIP_FILE_EXT);
+        let dst_skip_file = dst_path.clone().with_extension(SKIP_FILE_EXT);
         let mut src_skip_file = std::fs::File::create(src_skip_file)?;
         let mut dst_skip_file = std::fs::File::create(dst_skip_file)?;
 
@@ -675,12 +670,8 @@ impl<'a, T: AsRef<Path>> Comparator<'a, T> {
 
         let (src_frame_hashes, dst_frame_hashes) = if !analyze {
             // Make sure frame data files exist for these videos.
-            let src_data_path = src_path
-                .clone()
-                .with_extension(Analyzer::FRAME_HASH_DATA_FILE_EXT);
-            let dst_data_path = dst_path
-                .clone()
-                .with_extension(Analyzer::FRAME_HASH_DATA_FILE_EXT);
+            let src_data_path = src_path.clone().with_extension(FRAME_HASH_DATA_FILE_EXT);
+            let dst_data_path = dst_path.clone().with_extension(FRAME_HASH_DATA_FILE_EXT);
             if !src_data_path.exists() {
                 return Err(Error::FrameHashDataNotFound(src_data_path).into());
             }
@@ -705,26 +696,13 @@ impl<'a, T: AsRef<Path>> Comparator<'a, T> {
             // Otherwise, compute the hash data now by analyzing the video files.
             tracing::info!("starting in-place video analysis...");
 
-            let src_analyzer = Analyzer::new(src_path.clone(), false)?;
-            let dst_analyzer = Analyzer::new(dst_path.clone(), false)?;
-
-            let dst_handle = std::thread::spawn(move || {
-                let result = dst_analyzer.run(
-                    Analyzer::DEFAULT_HASH_PERIOD,
-                    Analyzer::DEFAULT_HASH_DURATION,
-                    false,
-                );
-                tracing::info!("completed analysis for dst");
-                result
-            });
-
-            let src_frame_hashes = src_analyzer.run(
-                Analyzer::DEFAULT_HASH_PERIOD,
-                Analyzer::DEFAULT_HASH_DURATION,
-                false,
-            )?;
+            let src_analyzer = Analyzer::new(&src_path, false)?;
+            let dst_analyzer = Analyzer::new(&dst_path, false)?;
+            let src_frame_hashes =
+                src_analyzer.run(DEFAULT_HASH_PERIOD, DEFAULT_HASH_DURATION, false)?;
+            let dst_frame_hashes =
+                dst_analyzer.run(DEFAULT_HASH_PERIOD, DEFAULT_HASH_DURATION, false)?;
             tracing::info!("completed analysis for src");
-            let dst_frame_hashes = dst_handle.join().unwrap()?;
 
             (src_frame_hashes, dst_frame_hashes)
         };
@@ -747,9 +725,9 @@ impl<'a, T: AsRef<Path>> Comparator<'a, T> {
     pub fn run(&self, analyze: bool, display: bool, create_skip_files: bool) -> anyhow::Result<()> {
         let mut pairs = Vec::new();
         let mut processed_videos = HashSet::new();
-        for (i, v1) in self.paths.iter().enumerate() {
+        for (i, v1) in self.videos.iter().enumerate() {
             let v1 = v1.as_ref();
-            for (j, v2) in self.paths.iter().enumerate() {
+            for (j, v2) in self.videos.iter().enumerate() {
                 let v2 = v2.as_ref();
                 if i == j || processed_videos.contains(v2) {
                     continue;
@@ -773,9 +751,9 @@ impl<'a, T: AsRef<Path> + std::marker::Sync> Comparator<'a, T> {
     pub fn run(&self, analyze: bool, display: bool, create_skip_files: bool) -> anyhow::Result<()> {
         let mut pairs = Vec::new();
         let mut processed_videos = HashSet::new();
-        for (i, v1) in self.paths.iter().enumerate() {
+        for (i, v1) in self.videos.iter().enumerate() {
             let v1 = v1.as_ref();
-            for (j, v2) in self.paths.iter().enumerate() {
+            for (j, v2) in self.videos.iter().enumerate() {
                 let v2 = v2.as_ref();
                 if i == j || processed_videos.contains(v2) {
                     continue;
