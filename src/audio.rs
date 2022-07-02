@@ -81,6 +81,8 @@ struct ComparatorHeapEntry {
     score: usize,
     src_longest_run: (Duration, Duration),
     dst_longest_run: (Duration, Duration),
+    src_match_hash: u32,
+    dst_match_hash: u32,
     is_src_opening: bool,
     is_dst_opening: bool,
     src_hash_duration: Duration,
@@ -391,6 +393,12 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
         }
     }
 
+    #[inline]
+    fn compute_hash_for_match(hashes: &[(u32, Duration)], (start, end): (usize, usize)) -> u32 {
+        let hashes: Vec<u32> = hashes.iter().map(|t| t.0).collect();
+        crate::simhash::simhash32(&hashes[start..end + 1])
+    }
+
     /// Runs a LCS (longest common substring) search between the two sets of hashes. This runs in
     /// O(n * m) time.
     fn longest_common_hash_match(
@@ -403,44 +411,76 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
         dst_hash_duration: Duration,
         heap: &mut ComparatorHeap,
     ) {
+        // Build the DP table of substrings.
         let mut table: Vec<Vec<usize>> = vec![vec![0; dst.len() + 1]; src.len() + 1];
-
         for i in 0..src.len() {
             for j in 0..dst.len() {
                 let (src_hash, dst_hash) = (src[i].0, dst[j].0);
-
                 if i == 0 || j == 0 {
                     table[i][j] = 0;
                 } else if u32::count_ones(src_hash ^ dst_hash) <= self.hash_match_threshold {
                     table[i][j] = table[i - 1][j - 1] + 1;
-
-                    let (src_start, src_end) = (src[i - table[i][j]].1, src[i].1);
-                    let (dst_start, dst_end) = (dst[j - table[i][j]].1, dst[j].1);
-                    let is_src_opening = src_end < src_max_opening_time;
-                    let is_dst_opening = dst_end < dst_max_opening_time;
-
-                    let is_valid = (is_src_opening
-                        && (src_end - src_start) >= self.min_opening_duration)
-                        || (!is_src_opening && (src_end - src_start) >= self.min_ending_duration)
-                        || (is_dst_opening && (dst_end - dst_start) >= self.min_opening_duration)
-                        || (!is_dst_opening && (dst_end - dst_start) >= self.min_ending_duration);
-
-                    if is_valid {
-                        let entry = ComparatorHeapEntry {
-                            score: table[i][j],
-                            src_longest_run: (src_start, src_end),
-                            dst_longest_run: (dst_start, dst_end),
-                            is_src_opening,
-                            is_dst_opening,
-                            src_hash_duration,
-                            dst_hash_duration,
-                        };
-                        heap.push(entry);
-                    }
                 } else {
                     table[i][j] = 0;
                 }
             }
+        }
+
+        // Walk through the table and find all valid substrings and insert them into
+        // the heap.
+        let mut i = src.len() - 1;
+        while i > 0 {
+            let mut j = dst.len() - 1;
+            while j > 0 {
+                // We need to find an entry where the current entry is non-zero
+                // and the next entry is zero. This indicates that we are at the end
+                // of a substring.
+                if table[i][j] == 0
+                    || (i < src.len() - 1 && j < dst.len() - 1 && table[i + 1][j + 1] != 0)
+                {
+                    j -= 1;
+                    continue;
+                }
+
+                let (src_start_idx, src_end_idx) = (i - table[i][j], i);
+                let (dst_start_idx, dst_end_idx) = (j - table[i][j], j);
+
+                let (src_start, src_end) = (src[src_start_idx].1, src[src_end_idx].1);
+                let (dst_start, dst_end) = (dst[dst_start_idx].1, dst[dst_end_idx].1);
+                let is_src_opening = src_end < src_max_opening_time;
+                let is_dst_opening = dst_end < dst_max_opening_time;
+
+                let is_valid = (is_src_opening
+                    && (src_end - src_start) >= self.min_opening_duration)
+                    || (!is_src_opening && (src_end - src_start) >= self.min_ending_duration)
+                    || (is_dst_opening && (dst_end - dst_start) >= self.min_opening_duration)
+                    || (!is_dst_opening && (dst_end - dst_start) >= self.min_ending_duration);
+
+                if is_valid {
+                    let src_match_hash =
+                        Self::compute_hash_for_match(src, (src_start_idx, src_end_idx));
+                    let dst_match_hash =
+                        Self::compute_hash_for_match(dst, (dst_start_idx, dst_end_idx));
+
+                    let entry = ComparatorHeapEntry {
+                        score: table[i][j],
+                        src_longest_run: (src_start, src_end),
+                        dst_longest_run: (dst_start, dst_end),
+                        src_match_hash,
+                        dst_match_hash,
+                        is_src_opening,
+                        is_dst_opening,
+                        src_hash_duration,
+                        dst_hash_duration,
+                    };
+
+                    heap.push(entry);
+                }
+
+                j -= 1;
+            }
+
+            i -= 1;
         }
     }
 
