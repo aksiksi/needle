@@ -283,7 +283,7 @@ impl VideoComparator {
         dst_decoder.set_converter(ffmpeg_next::format::Pixel::GRAY8)?;
 
         let packets = Self::get_all_packets(&mut self.src_ctx, src_stream_idx);
-        tracing::info!(num_packets = packets.len());
+        tracing::debug!(num_packets = packets.len());
 
         Self::seek_to_timestamp(&mut self.src_ctx, src_stream_idx, Duration::from_secs(208))?;
         Self::seek_to_timestamp(&mut self.dst_ctx, dst_stream_idx, Duration::from_secs(174))?;
@@ -297,7 +297,7 @@ impl VideoComparator {
                 if let Some(output_prefix) = output_prefix {
                     let path = format!("frames/{}_{}.png", output_prefix, pts);
                     save_frame(f, &path).unwrap();
-                    tracing::info!(output = output_prefix, pts = pts);
+                    tracing::debug!(output = output_prefix, pts = pts);
                 }
 
                 (Self::hash_frame(f), ts)
@@ -321,7 +321,7 @@ impl VideoComparator {
             map_frame_fn(Some("dst_gray")),
         );
         for ((h1, t1), (h2, t2)) in src_frame_hashes.iter().zip(dst_frame_hashes.iter().skip(1)) {
-            tracing::info!(
+            tracing::debug!(
                 t1 = t1.as_millis() as u64,
                 t2 = t2.as_millis() as u64,
                 similarity = h1.distance(h2)

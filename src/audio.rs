@@ -328,7 +328,7 @@ impl<P: AsRef<Path>> Analyzer<P> {
         let stream_idx = stream.index();
         let threaded = self.threaded_decoding;
 
-        tracing::info!("starting frame processing for {}", path.display());
+        tracing::debug!("starting frame processing for {}", path.display());
         let frame_hashes = Self::process_frames(
             &mut ctx,
             stream_idx,
@@ -338,7 +338,7 @@ impl<P: AsRef<Path>> Analyzer<P> {
             threaded,
             None,
         )?;
-        tracing::info!(
+        tracing::debug!(
             num_hashes = frame_hashes.len(),
             "completed frame processing for {}",
             path.display(),
@@ -560,7 +560,7 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
             true,
         );
 
-        tracing::info!(heap_size = heap.len(), "finished sliding window analysis");
+        tracing::debug!(heap_size = heap.len(), "finished sliding window analysis");
 
         // Next, we'll use the `opening_search_percentage` to determine which is an opening and which is an ending.
         let src_max_opening_time = src_hash_data[src_partition_idx].1;
@@ -654,7 +654,7 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
         dst_path: &Path,
         analyze: bool,
     ) -> anyhow::Result<OpeningAndEndingInfo> {
-        tracing::info!("started audio comparator");
+        tracing::debug!("started audio comparator");
 
         let (src_frame_hashes, dst_frame_hashes) = if !analyze {
             // Make sure frame data files exist for these videos.
@@ -677,12 +677,12 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
                 &format!("invalid frame hash data file: {}", dst_data_path.display()),
             );
 
-            tracing::info!("loaded hash frame data from disk");
+            tracing::debug!("loaded hash frame data from disk");
 
             (src_frame_hashes, dst_frame_hashes)
         } else {
             // Otherwise, compute the hash data now by analyzing the video files.
-            tracing::info!("starting in-place video analysis...");
+            tracing::debug!("starting in-place video analysis...");
 
             let src_analyzer = Analyzer::new(&src_path, false)?;
             let dst_analyzer = Analyzer::new(&dst_path, false)?;
@@ -690,14 +690,14 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
                 src_analyzer.run(DEFAULT_HASH_PERIOD, DEFAULT_HASH_DURATION, false)?;
             let dst_frame_hashes =
                 dst_analyzer.run(DEFAULT_HASH_PERIOD, DEFAULT_HASH_DURATION, false)?;
-            tracing::info!("completed analysis for src");
+            tracing::debug!("completed analysis for src");
 
             (src_frame_hashes, dst_frame_hashes)
         };
 
-        tracing::info!("starting search for opening and ending");
+        tracing::debug!("starting search for opening and ending");
         let info = self.find_opening_and_ending(&src_frame_hashes, &dst_frame_hashes);
-        tracing::info!("finished search for opening and ending");
+        tracing::debug!("finished search for opening and ending");
 
         Ok(info)
     }
