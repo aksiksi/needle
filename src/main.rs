@@ -39,6 +39,7 @@ enum Commands {
         #[clap(
             required = true,
             multiple_values = true,
+            value_parser = clap::value_parser!(PathBuf),
             help = "Video files or directories to analyze."
         )]
         paths: Vec<PathBuf>,
@@ -78,6 +79,7 @@ enum Commands {
         #[clap(
             required = true,
             multiple_values = true,
+            value_parser = clap::value_parser!(PathBuf),
             help = "Video files or directories to search for openings and endings in."
         )]
         paths: Vec<PathBuf>,
@@ -250,7 +252,7 @@ impl Cli {
                 let mut cmd = Cli::command();
                 cmd.error(
                     ErrorKind::InvalidValue,
-                    format!("path not found: {}", path.display()),
+                    format!("invalid path: {}", path.display()),
                 )
                 .exit();
             }
