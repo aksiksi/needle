@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -239,7 +240,7 @@ impl Cli {
     }
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     let subscriber = tracing_subscriber::FmtSubscriber::builder()
         .with_max_level(tracing::Level::TRACE)
         .finish();
@@ -261,9 +262,10 @@ fn main() {
             ..
         } => match mode {
             Mode::Audio => {
+                // Generate a list of analyzers, one per input video file.
                 let mut analyzers = Vec::new();
                 for video in video_files {
-                    analyzers.push(audio::Analyzer::new(&video, threaded_decoding).unwrap());
+                    analyzers.push(audio::Analyzer::new(&video, threaded_decoding)?);
                 }
 
                 #[cfg(feature = "rayon")]
@@ -303,18 +305,41 @@ fn main() {
                 )
                 .exit();
             }
-            let audio_comparator = audio::Comparator::from_files(
-                &video_files[0],
-                &video_files[1],
-                hash_match_threshold,
-                opening_search_percentage,
-                Duration::from_secs(min_opening_duration.into()),
-                Duration::from_secs(min_ending_duration.into()),
-            )
-            .unwrap();
-            audio_comparator
-                .run(analyze, !no_display, create_skip_files)
-                .unwrap();
+            let min_opening_duration = Duration::from_secs(min_opening_duration.into());
+            let min_ending_duration = Duration::from_secs(min_ending_duration.into());
+
+            // Build a list of comparators by generating all unique pairs of videos from the set of provided
+            // video file paths. Given N paths, this would result in: (N * (N-1)) / 2 comparators.
+            let mut comparators = Vec::new();
+            let mut processed_videos = HashSet::new();
+            for (i, v1) in video_files.iter().enumerate() {
+                for (j, v2) in video_files.iter().enumerate() {
+                    if i == j || processed_videos.contains(v2) {
+                        continue;
+                    }
+                    let c = audio::Comparator::from_files(
+                        v1,
+                        v2,
+                        hash_match_threshold,
+                        opening_search_percentage,
+                        min_opening_duration,
+                        min_ending_duration,
+                    )?;
+                    comparators.push(c);
+                }
+                processed_videos.insert(v1);
+            }
+
+            #[cfg(feature = "rayon")]
+            comparators.par_iter().for_each(|c| {
+                c.run(analyze, !no_display, create_skip_files).unwrap();
+            });
+            #[cfg(not(feature = "rayon"))]
+            comparators.iter().for_each(|c| {
+                c.run(analyze, !no_display, create_skip_files).unwrap();
+            });
         }
     }
+
+    Ok(())
 }

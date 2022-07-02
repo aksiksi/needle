@@ -80,7 +80,7 @@ impl Display for ComparatorHeapEntry {
 }
 
 #[derive(Debug)]
-struct OpeningAndEndingInfo {
+pub struct OpeningAndEndingInfo {
     src_openings: Vec<ComparatorHeapEntry>,
     dst_openings: Vec<ComparatorHeapEntry>,
     src_endings: Vec<ComparatorHeapEntry>,
@@ -329,8 +329,8 @@ pub struct Comparator {
     dst_path: PathBuf,
     hash_match_threshold: u16,
     opening_search_percentage: f32,
-    minimum_opening_duration: Duration,
-    minimum_ending_duration: Duration,
+    min_opening_duration: Duration,
+    min_ending_duration: Duration,
 }
 
 impl Comparator {
@@ -345,8 +345,8 @@ impl Comparator {
         dst_path: Q,
         hash_match_threshold: u16,
         opening_search_percentage: f32,
-        minimum_opening_duration: Duration,
-        minimum_ending_duration: Duration,
+        min_opening_duration: Duration,
+        min_ending_duration: Duration,
     ) -> anyhow::Result<Self>
     where
         P: Into<PathBuf>,
@@ -360,8 +360,8 @@ impl Comparator {
             dst_path,
             hash_match_threshold,
             opening_search_percentage,
-            minimum_opening_duration,
-            minimum_ending_duration,
+            min_opening_duration,
+            min_ending_duration,
         })
     }
 
@@ -523,25 +523,25 @@ impl Comparator {
             let (dst_start, dst_end) = entry.dst_longest_run;
             let (src_duration, dst_duration) = (src_end - src_start, dst_end - dst_start);
 
-            let valid_duration = src_duration >= self.minimum_opening_duration
-                || src_duration >= self.minimum_ending_duration
-                || dst_duration >= self.minimum_opening_duration
-                || dst_duration >= self.minimum_ending_duration;
+            let valid_duration = src_duration >= self.min_opening_duration
+                || src_duration >= self.min_ending_duration
+                || dst_duration >= self.min_opening_duration
+                || dst_duration >= self.min_ending_duration;
             if !valid_duration {
                 break;
             }
 
-            if src_duration >= self.minimum_opening_duration && src_end <= src_max_opening_time {
+            if src_duration >= self.min_opening_duration && src_end <= src_max_opening_time {
                 src_valid_openings.push(entry.clone());
-            } else if src_duration >= self.minimum_ending_duration
+            } else if src_duration >= self.min_ending_duration
                 && src_start >= src_max_opening_time
             {
                 src_valid_endings.push(entry.clone());
             }
 
-            if dst_duration >= self.minimum_opening_duration && dst_end <= dst_max_opening_time {
+            if dst_duration >= self.min_opening_duration && dst_end <= dst_max_opening_time {
                 dst_valid_openings.push(entry.clone());
-            } else if dst_duration >= self.minimum_ending_duration
+            } else if dst_duration >= self.min_ending_duration
                 && dst_start >= dst_max_opening_time
             {
                 dst_valid_endings.push(entry.clone());
@@ -556,7 +556,7 @@ impl Comparator {
         }
     }
 
-    pub fn run(&self, analyze: bool, display: bool, create_skip_files: bool) -> anyhow::Result<()> {
+    pub fn run(&self, analyze: bool, display: bool, create_skip_files: bool) -> anyhow::Result<OpeningAndEndingInfo> {
         tracing::info!("started audio comparator");
 
         let (src_frame_hashes, dst_frame_hashes) = if !analyze {
@@ -628,7 +628,7 @@ impl Comparator {
             self.create_skip_files(&info)?;
         }
 
-        Ok(())
+        Ok(info)
     }
 
     fn create_skip_files(&self, info: &OpeningAndEndingInfo) -> anyhow::Result<()> {
