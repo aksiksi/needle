@@ -116,6 +116,14 @@ enum Commands {
 
         #[clap(
             long,
+            default_value_t = audio::DEFAULT_OPENING_AND_ENDING_TIME_PADDING,
+            value_parser = clap::value_parser!(f32),
+            help = "Amount of time (in seconds) to add to detected opening/ending start time and deduct from detected opening/ending end time."
+        )]
+        time_padding: f32,
+
+        #[clap(
+            long,
             default_value = "false",
             action(ArgAction::SetTrue),
             help = "Run the analysis step in-place instead of looking for pre-computed hash data."
@@ -291,6 +299,7 @@ fn main() -> anyhow::Result<()> {
             analyze,
             no_display,
             create_skip_files,
+            time_padding,
             ..
         } => {
             if videos.len() < 2 {
@@ -306,12 +315,14 @@ fn main() -> anyhow::Result<()> {
             }
             let min_opening_duration = Duration::from_secs(min_opening_duration.into());
             let min_ending_duration = Duration::from_secs(min_ending_duration.into());
+            let time_padding = Duration::from_secs_f32(time_padding);
             let comparator = audio::Comparator::from_files(
                 &videos,
                 hash_match_threshold,
                 opening_search_percentage,
                 min_opening_duration,
                 min_ending_duration,
+                time_padding,
             );
             comparator.run(analyze, !no_display, create_skip_files)?;
         }

@@ -21,6 +21,7 @@ pub const DEFAULT_MIN_OPENING_DURATION: u16 = 20; // seconds
 pub const DEFAULT_MIN_ENDING_DURATION: u16 = 20; // seconds
 pub const DEFAULT_HASH_PERIOD: f32 = 0.3;
 pub const DEFAULT_HASH_DURATION: f32 = 3.0;
+pub const DEFAULT_OPENING_AND_ENDING_TIME_PADDING: f32 = 3.0; // seconds
 
 const FRAME_HASH_DATA_FILE_EXT: &str = "needle.bin";
 const SKIP_FILE_EXT: &str = "needle.skip.json";
@@ -364,6 +365,7 @@ pub struct Comparator<'a, P: AsRef<Path>> {
     opening_search_percentage: f32,
     min_opening_duration: Duration,
     min_ending_duration: Duration,
+    time_padding: Duration,
 }
 
 impl<'a, P: AsRef<Path>> Comparator<'a, P> {
@@ -373,6 +375,7 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
         opening_search_percentage: f32,
         min_opening_duration: Duration,
         min_ending_duration: Duration,
+        time_padding: Duration,
     ) -> Self {
         Self {
             videos,
@@ -380,6 +383,7 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
             opening_search_percentage,
             min_opening_duration,
             min_ending_duration,
+            time_padding,
         }
     }
 
@@ -673,7 +677,12 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
     ///
     /// The idea is simple: keep track of the longest opening and ending detected among all of the matches
     /// and combine them to determine the best overall match.
-    fn find_best_match(&self, matches: &[(&OpeningAndEndingInfo, bool)]) -> Option<SearchResult> {
+    fn find_best_match(
+        &self,
+        matches: &[(&OpeningAndEndingInfo, bool)],
+    ) -> Option<SearchResult> {
+        // TODO(aksiksi): Use the number of distinct matches along with duration. For example, it could be that the longest
+        // opening was not actually the opening but instead a montage song found in one or two other episodes.
         if matches.len() == 0 {
             return None;
         }
@@ -693,17 +702,25 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
                 ending = m.dst_endings.first().map(|e| e.dst_longest_run);
             }
 
-            if let Some(opening) = opening {
-                let duration = opening.1 - opening.0;
+            if let Some((start, end)) = opening {
+                let duration = end - start;
                 if duration >= best_opening_duration {
-                    result.opening = Some(opening);
+                    result.opening = Some((
+                        // Add a buffer between actual detected times and what we return to users.
+                        start + self.time_padding,
+                        end - self.time_padding,
+                    ));
                     best_opening_duration = duration;
                 }
             }
-            if let Some(ending) = ending {
-                let duration = ending.1 - ending.0;
+            if let Some((start, end)) = ending {
+                let duration = end - start;
                 if duration >= best_ending_duration {
-                    result.ending = Some(ending);
+                    result.ending = Some((
+                        // Add a buffer between actual detected times and what we return to users.
+                        start + self.time_padding,
+                        end - self.time_padding,
+                    ));
                     best_ending_duration = duration;
                 }
             }
