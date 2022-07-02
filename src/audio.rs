@@ -237,10 +237,32 @@ impl<P: AsRef<Path>> Analyzer<P> {
         for p in audio_packets {
             decoder.send_packet(&p).unwrap();
             while decoder.receive_frame(&mut frame).is_ok() {
-                // Resample frame to S16 stereo and return the frame delay.
-                let mut delay = resampler
-                    .run(&frame, &mut frame_resampled)
-                    .expect("frame resampling failed");
+                // Resample the frame to S16 stereo and return the frame delay.
+                let mut delay = match resampler.run(&frame, &mut frame_resampled) {
+                    Ok(v) => v,
+                    // If resampling fails due to changed input, construct a new local resampler for this frame
+                    // and swap out the global resampler.
+                    Err(ffmpeg_next::Error::InputChanged) => {
+                        let mut local_resampler = frame
+                            .resampler(
+                                ffmpeg_next::format::Sample::I16(
+                                    ffmpeg_next::format::sample::Type::Packed,
+                                ),
+                                ffmpeg_next::ChannelLayout::STEREO,
+                                target_sample_rate,
+                            )
+                            .unwrap();
+                        let delay = local_resampler
+                            .run(&frame, &mut frame_resampled)
+                            .expect("failed to resample frame");
+
+                        resampler = local_resampler;
+
+                        delay
+                    }
+                    // We don't expect any other errors to occur.
+                    Err(_) => panic!("unexpected error"),
+                };
 
                 loop {
                     // Obtain a slice of raw bytes in interleaved format.
