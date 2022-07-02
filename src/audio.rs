@@ -1,7 +1,7 @@
 extern crate chromaprint;
 extern crate ffmpeg_next;
 
-use std::collections::{BinaryHeap, HashSet};
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::fmt::Display;
 use std::path::Path;
 use std::time::Duration;
@@ -93,11 +93,17 @@ impl Display for ComparatorHeapEntry {
 }
 
 #[derive(Debug)]
-pub struct OpeningAndEndingInfo {
+struct OpeningAndEndingInfo {
     src_openings: Vec<ComparatorHeapEntry>,
     dst_openings: Vec<ComparatorHeapEntry>,
     src_endings: Vec<ComparatorHeapEntry>,
     dst_endings: Vec<ComparatorHeapEntry>,
+}
+
+#[derive(Copy, Clone, Debug, Default)]
+struct SearchResult {
+    opening: Option<(Duration, Duration)>,
+    ending: Option<(Duration, Duration)>,
 }
 
 pub struct Analyzer<P: AsRef<Path>> {
@@ -566,73 +572,28 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
         }
     }
 
-    fn create_skip_files(
-        &self,
-        src_path: &Path,
-        dst_path: &Path,
-        info: &OpeningAndEndingInfo,
-    ) -> anyhow::Result<()> {
-        let src_skip_file = src_path.clone().with_extension(SKIP_FILE_EXT);
-        let dst_skip_file = dst_path.clone().with_extension(SKIP_FILE_EXT);
-        let mut src_skip_file = std::fs::File::create(src_skip_file)?;
-        let mut dst_skip_file = std::fs::File::create(dst_skip_file)?;
-
-        // Convert opening and ending entries into f32 tuples to be serialized to JSON.
-        let src_opening = info.src_openings.first().map(|d| {
-            (
-                d.src_longest_run.0.as_secs_f32(),
-                d.src_longest_run.1.as_secs_f32(),
-            )
-        });
-        let src_ending = info.src_endings.first().map(|d| {
-            (
-                d.src_longest_run.0.as_secs_f32(),
-                d.src_longest_run.1.as_secs_f32(),
-            )
-        });
-        let dst_opening = info.dst_openings.first().map(|d| {
-            (
-                d.dst_longest_run.0.as_secs_f32(),
-                d.dst_longest_run.1.as_secs_f32(),
-            )
-        });
-        let dst_ending = info.dst_endings.first().map(|d| {
-            (
-                d.dst_longest_run.0.as_secs_f32(),
-                d.dst_longest_run.1.as_secs_f32(),
-            )
-        });
-
-        // Write the JSON files to disk only if we have detected either the opening or the ending.
-        if !src_opening.is_none() || !src_ending.is_none() {
-            let src_skip_file_data = serde_json::json!({
-                "opening": src_opening,
-                "ending": src_ending,
-            });
-            serde_json::to_writer(&mut src_skip_file, &src_skip_file_data)?;
+    fn create_skip_file(&self, path: &Path, result: SearchResult) -> anyhow::Result<()> {
+        let opening = result
+            .opening
+            .map(|(start, end)| (start.as_secs_f32(), end.as_secs_f32()));
+        let ending = result
+            .ending
+            .map(|(start, end)| (start.as_secs_f32(), end.as_secs_f32()));
+        if opening.is_none() && ending.is_none() {
+            return Ok(());
         }
-        if !dst_opening.is_none() || !dst_ending.is_none() {
-            let dst_skip_file_data = serde_json::json!({
-                "opening": dst_opening,
-                "ending": dst_ending,
-            });
 
-            serde_json::to_writer(&mut dst_skip_file, &dst_skip_file_data)?;
-        }
+        let skip_file = path.clone().with_extension(SKIP_FILE_EXT);
+        let mut skip_file = std::fs::File::create(skip_file)?;
+        let data = serde_json::json!({"opening": opening, "ending": ending});
+        serde_json::to_writer(&mut skip_file, &data)?;
 
         Ok(())
     }
 
-    fn display_opening_ending_info(
-        &self,
-        src_path: &Path,
-        dst_path: &Path,
-        info: &OpeningAndEndingInfo,
-    ) {
-        println!("\nSource: {}\n", src_path.display());
-
-        if let Some(opening) = info.src_openings.first() {
-            let opening = opening.src_longest_run;
+    fn display_opening_ending_info(&self, path: &Path, result: SearchResult) {
+        println!("\n{}\n", path.display());
+        if let Some(opening) = result.opening {
             let (start, end) = opening;
             println!(
                 "* Opening - {:?}-{:?}",
@@ -642,33 +603,7 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
         } else {
             println!("* Opening - N/A");
         }
-        if let Some(ending) = info.src_endings.first() {
-            let ending = ending.src_longest_run;
-            let (start, end) = ending;
-            println!(
-                "* Ending - {:?}-{:?}",
-                util::format_time(start),
-                util::format_time(end)
-            );
-        } else {
-            println!("* Ending - N/A");
-        }
-
-        println!("\nDestination: {}\n", dst_path.display());
-
-        if let Some(opening) = info.dst_openings.first() {
-            let opening = opening.dst_longest_run;
-            let (start, end) = opening;
-            println!(
-                "* Opening - {:?}-{:?}",
-                util::format_time(start),
-                util::format_time(end)
-            );
-        } else {
-            println!("* Opening - N/A");
-        }
-        if let Some(ending) = info.dst_endings.first() {
-            let ending = ending.dst_longest_run;
+        if let Some(ending) = result.ending {
             let (start, end) = ending;
             println!(
                 "* Ending - {:?}-{:?}",
@@ -685,8 +620,6 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
         src_path: &Path,
         dst_path: &Path,
         analyze: bool,
-        display: bool,
-        create_skip_files: bool,
     ) -> anyhow::Result<OpeningAndEndingInfo> {
         tracing::info!("started audio comparator");
 
@@ -733,19 +666,57 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
         let info = self.find_opening_and_ending(&src_frame_hashes.data, &dst_frame_hashes.data);
         tracing::info!("finished search for opening and ending");
 
-        if display {
-            self.display_opening_ending_info(src_path, dst_path, &info);
-        }
-        if create_skip_files {
-            self.create_skip_files(src_path, dst_path, &info)?;
+        Ok(info)
+    }
+
+    /// Find the best opening and ending candidate across all provided matches.
+    ///
+    /// The idea is simple: keep track of the longest opening and ending detected among all of the matches
+    /// and combine them to determine the best overall match.
+    fn find_best_match(&self, matches: &[(&OpeningAndEndingInfo, bool)]) -> Option<SearchResult> {
+        if matches.len() == 0 {
+            return None;
         }
 
-        Ok(info)
+        let mut result: SearchResult = Default::default();
+        let mut best_opening_duration = Duration::ZERO;
+        let mut best_ending_duration = Duration::ZERO;
+
+        for (m, is_source) in matches {
+            let opening;
+            let ending;
+            if *is_source {
+                opening = m.src_openings.first().map(|e| e.src_longest_run);
+                ending = m.src_endings.first().map(|e| e.src_longest_run);
+            } else {
+                opening = m.dst_openings.first().map(|e| e.dst_longest_run);
+                ending = m.dst_endings.first().map(|e| e.dst_longest_run);
+            }
+
+            if let Some(opening) = opening {
+                let duration = opening.1 - opening.0;
+                if duration >= best_opening_duration {
+                    result.opening = Some(opening);
+                    best_opening_duration = duration;
+                }
+            }
+            if let Some(ending) = ending {
+                let duration = ending.1 - ending.0;
+                if duration >= best_ending_duration {
+                    result.ending = Some(ending);
+                    best_ending_duration = duration;
+                }
+            }
+        }
+
+        Some(result)
     }
 }
 
 impl<'a, T: AsRef<Path> + std::marker::Sync> Comparator<'a, T> {
     pub fn run(&self, analyze: bool, display: bool, create_skip_files: bool) -> anyhow::Result<()> {
+        // Build a list of video pairs for actual search. Pairs should only appear once.
+        // Given N videos, this will result in: (N * (N-1)) / 2 pairs
         let mut pairs = Vec::new();
         let mut processed_videos = HashSet::new();
         for (i, v1) in self.videos.iter().enumerate() {
@@ -760,16 +731,64 @@ impl<'a, T: AsRef<Path> + std::marker::Sync> Comparator<'a, T> {
             processed_videos.insert(v1);
         }
 
+        // Perform the search in parallel for all pairs.
         #[cfg(feature = "rayon")]
-        pairs.par_iter().for_each(|(src_path, dst_path)| {
-            self.search(src_path, dst_path, analyze, display, create_skip_files)
-                .unwrap();
-        });
+        let data = pairs
+            .par_iter()
+            .map(|(src_path, dst_path)| {
+                (
+                    *src_path,
+                    *dst_path,
+                    self.search(src_path, dst_path, analyze).unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
         #[cfg(not(feature = "rayon"))]
-        pairs.iter().for_each(|(src_path, dst_path)| {
-            self.search(src_path, dst_path, analyze, display, create_skip_files)
-                .unwrap();
-        });
+        let data = pairs
+            .iter()
+            .map(|(src_path, dst_path)| {
+                (
+                    *src_path,
+                    *dst_path,
+                    self.search(src_path, dst_path, analyze).unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        // This map tracks the generated info struct for each video path. A bool is included
+        // to allow determining whether the path is a source (true) or dest (false) in the info
+        // struct.
+        let mut info_map: HashMap<&Path, Vec<(&OpeningAndEndingInfo, bool)>> = HashMap::new();
+
+        for (src_path, dst_path, info) in &data {
+            if let Some(v) = info_map.get_mut(*src_path) {
+                v.push((info, true));
+            } else {
+                info_map.insert(*src_path, vec![(info, true)]);
+            }
+            if let Some(v) = info_map.get_mut(*dst_path) {
+                v.push((info, false));
+            } else {
+                info_map.insert(*dst_path, vec![(info, false)]);
+            }
+        }
+
+        // For each path, find the best opening and ending candidate among the list
+        // of other videos. If required, display the result and write a skip file to disk.
+        for (path, matches) in info_map {
+            let result = self.find_best_match(&matches);
+            if result.is_none() {
+                println!("No opening or ending found for: {}", path.display());
+                continue;
+            }
+            let result = result.unwrap();
+            if display {
+                self.display_opening_ending_info(path, result);
+            }
+            if create_skip_files {
+                self.create_skip_file(path, result)?;
+            }
+        }
 
         Ok(())
     }
