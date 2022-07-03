@@ -1,80 +1,15 @@
-extern crate chromaprint_rust;
-extern crate ffmpeg_next;
+extern crate rayon;
 
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::fmt::Display;
 use std::path::Path;
 use std::time::Duration;
 
-use chromaprint_rust as chromaprint;
-use serde::{Deserialize, Serialize};
-
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
 
-use super::simhash::simhash32;
-use super::util;
-use super::Error;
-
-pub const DEFAULT_HASH_MATCH_THRESHOLD: u16 = 15;
-pub const DEFAULT_OPENING_SEARCH_PERCENTAGE: f32 = 0.33;
-pub const DEFAULT_ENDING_SEARCH_PERCENTAGE: f32 = 0.25;
-pub const DEFAULT_MIN_OPENING_DURATION: u16 = 20; // seconds
-pub const DEFAULT_MIN_ENDING_DURATION: u16 = 20; // seconds
-pub const DEFAULT_HASH_PERIOD: f32 = 0.3;
-pub const DEFAULT_HASH_DURATION: f32 = 3.0;
-pub const DEFAULT_OPENING_AND_ENDING_TIME_PADDING: f32 = 0.0; // seconds
-
-const FRAME_HASH_DATA_FILE_EXT: &str = "needle.bin";
-const SKIP_FILE_EXT: &str = "needle.skip.json";
-
-// TODO: Include MD5 hash to avoid duplicating work.
-#[derive(Deserialize, Serialize)]
-pub struct FrameHashes {
-    hash_period: f32,
-    hash_duration: f32,
-    data: Vec<(u32, Duration)>,
-}
-
-/// Wraps the `FFmpeg` audio decoder.
-struct Decoder {
-    decoder: ffmpeg_next::codec::decoder::Audio,
-}
-
-impl Decoder {
-    fn build_threading_config() -> ffmpeg_next::codec::threading::Config {
-        let mut config = ffmpeg_next::codec::threading::Config::default();
-        config.count = std::thread::available_parallelism()
-            .expect("unable to determine available parallelism")
-            .get();
-        config.kind = ffmpeg_next::codec::threading::Type::Frame;
-        config
-    }
-
-    fn from_stream(
-        stream: ffmpeg_next::format::stream::Stream,
-        threaded: bool,
-    ) -> anyhow::Result<Self> {
-        let ctx = ffmpeg_next::codec::context::Context::from_parameters(stream.parameters())?;
-        let mut decoder = ctx.decoder();
-
-        if threaded {
-            decoder.set_threading(Self::build_threading_config());
-        }
-
-        let decoder = decoder.audio()?;
-
-        Ok(Self { decoder })
-    }
-
-    fn send_packet(&mut self, packet: &ffmpeg_next::packet::Packet) -> anyhow::Result<()> {
-        Ok(self.decoder.send_packet(packet)?)
-    }
-
-    fn receive_frame(&mut self, frame: &mut ffmpeg_next::frame::Audio) -> anyhow::Result<()> {
-        Ok(self.decoder.receive_frame(frame)?)
-    }
-}
+use crate::Error;
+use crate::util;
 
 type ComparatorHeap = BinaryHeap<ComparatorHeapEntry>;
 
@@ -113,223 +48,6 @@ struct OpeningAndEndingInfo {
 struct SearchResult {
     opening: Option<(Duration, Duration)>,
     ending: Option<(Duration, Duration)>,
-}
-
-pub struct Analyzer<'a, P: AsRef<Path> + Sync> {
-    paths: &'a [P],
-    threaded_decoding: bool,
-}
-
-impl<'a, P: AsRef<Path> + 'a + Sync> Analyzer<'a, P> {
-    pub fn new(paths: &'a [P], threaded_decoding: bool) -> anyhow::Result<Self> {
-        Ok(Self {
-            paths,
-            threaded_decoding,
-        })
-    }
-
-    fn find_best_audio_stream(
-        input: &ffmpeg_next::format::context::Input,
-    ) -> ffmpeg_next::format::stream::Stream {
-        input
-            .streams()
-            .best(ffmpeg_next::media::Type::Audio)
-            .expect("unable to find an audio stream")
-    }
-
-    // Returns the actual presentation timestamp for this frame (i.e., timebase agnostic).
-    #[allow(unused)]
-    fn frame_timestamp(
-        ctx: &mut ffmpeg_next::format::context::Input,
-        stream_idx: usize,
-        frame: &ffmpeg_next::frame::Audio,
-    ) -> Option<Duration> {
-        ctx.stream(stream_idx)
-            .map(|s| f64::from(s.time_base()))
-            .and_then(|time_base| frame.timestamp().map(|t| t as f64 * time_base * 1000.0))
-            .map(|ts| Duration::from_millis(ts as u64))
-    }
-
-    // Given an audio stream, computes the fingerprint for raw audio for the given duration.
-    //
-    // `count` can be used to limit the number of frames to process.
-    fn process_frames(
-        ctx: &mut ffmpeg_next::format::context::Input,
-        stream_idx: usize,
-        hash_duration: Duration,
-        hash_period: Duration,
-        threaded: bool,
-    ) -> anyhow::Result<Vec<(u32, Duration)>> {
-        let span = tracing::span!(tracing::Level::TRACE, "process_frames");
-        let _enter = span.enter();
-
-        let stream = ctx.stream(stream_idx).unwrap();
-        let mut decoder = Decoder::from_stream(stream, threaded).unwrap();
-
-        let mut hashes = Vec::new();
-        let mut frame = ffmpeg_next::frame::Audio::empty();
-        let mut frame_resampled = ffmpeg_next::frame::Audio::empty();
-
-        // Setup the audio fingerprinter
-        let n = f32::ceil(hash_duration.as_secs_f32() / hash_period.as_secs_f32()) as usize;
-        let mut fingerprinter =
-            chromaprint::DelayedFingerprinter::new(n, hash_duration, hash_period, None, 2, None);
-
-        // Setup the audio resampler
-        let target_sample_rate = fingerprinter.sample_rate();
-        let mut resampler = decoder
-            .decoder
-            .resampler(
-                ffmpeg_next::format::Sample::I16(ffmpeg_next::format::sample::Type::Packed),
-                ffmpeg_next::ChannelLayout::STEREO,
-                target_sample_rate,
-            )
-            .unwrap();
-
-        // Build an iterator over packets in the stream.
-        let audio_packets = ctx
-            .packets()
-            .filter(|(s, _)| s.index() == stream_idx)
-            .map(|(_, p)| p);
-
-        for p in audio_packets {
-            decoder.send_packet(&p).unwrap();
-            while decoder.receive_frame(&mut frame).is_ok() {
-                // Resample the frame to S16 stereo and return the frame delay.
-                let mut delay = match resampler.run(&frame, &mut frame_resampled) {
-                    Ok(v) => v,
-                    // If resampling fails due to changed input, construct a new local resampler for this frame
-                    // and swap out the global resampler.
-                    Err(ffmpeg_next::Error::InputChanged) => {
-                        let mut local_resampler = frame
-                            .resampler(
-                                ffmpeg_next::format::Sample::I16(
-                                    ffmpeg_next::format::sample::Type::Packed,
-                                ),
-                                ffmpeg_next::ChannelLayout::STEREO,
-                                target_sample_rate,
-                            )
-                            .unwrap();
-                        let delay = local_resampler
-                            .run(&frame, &mut frame_resampled)
-                            .expect("failed to resample frame");
-
-                        resampler = local_resampler;
-
-                        delay
-                    }
-                    // We don't expect any other errors to occur.
-                    Err(_) => panic!("unexpected error"),
-                };
-
-                loop {
-                    // Obtain a slice of raw bytes in interleaved format.
-                    // We have two channels, so the bytes look like this: c1, c1, c2, c2, c1, c1, c2, c2, ...
-                    //
-                    // Note that `data` is a fixed-size buffer. To get the _actual_ sample bytes, we need to use:
-                    // a) sample count, b) channel count, and c) number of bytes per S16 sample.
-                    let raw_samples = &frame_resampled.data(0)
-                        [..frame_resampled.samples() * frame_resampled.channels() as usize * 2];
-
-                    // Transmute the raw byte slice into a slice of i16 samples.
-                    // This looks like: c1, c2, c1, c2, ...
-                    //
-                    // SAFETY: We know for a fact that the returned buffer contains i16 samples
-                    // because we explicitly told the resampler to return S16 samples (see above).
-                    let (_, samples, _) = unsafe { raw_samples.align_to() };
-
-                    // Feed the i16 samples to Chromaprint. Since we are using the default sampling rate,
-                    // Chromaprint will _not_ do any resampling internally.
-                    for (raw_fingerprint, ts) in fingerprinter.feed(samples).unwrap() {
-                        let hash = simhash32(raw_fingerprint.get());
-                        hashes.push((hash, ts));
-                    }
-
-                    if delay.is_none() {
-                        break;
-                    } else {
-                        delay = resampler.flush(&mut frame_resampled).unwrap();
-                    }
-                }
-            }
-        }
-
-        Ok(hashes)
-    }
-
-    fn run_single(
-        &self,
-        path: impl AsRef<Path>,
-        hash_period: f32,
-        hash_duration: f32,
-        persist: bool,
-    ) -> anyhow::Result<FrameHashes> {
-        let span = tracing::span!(tracing::Level::TRACE, "run");
-        let _enter = span.enter();
-
-        let path = path.as_ref();
-        let mut ctx = ffmpeg_next::format::input(&path)?;
-        let stream = Self::find_best_audio_stream(&ctx);
-        let stream_idx = stream.index();
-        let threaded = self.threaded_decoding;
-
-        tracing::debug!("starting frame processing for {}", path.display());
-        let frame_hashes = Self::process_frames(
-            &mut ctx,
-            stream_idx,
-            Duration::from_secs_f32(hash_duration),
-            Duration::from_secs_f32(hash_period),
-            threaded,
-        )?;
-        tracing::debug!(
-            num_hashes = frame_hashes.len(),
-            "completed frame processing for {}",
-            path.display(),
-        );
-
-        let frame_hashes = FrameHashes {
-            hash_period,
-            hash_duration,
-            data: frame_hashes,
-        };
-
-        // Write results to disk.
-        if persist {
-            let mut f = std::fs::File::create(path.with_extension(FRAME_HASH_DATA_FILE_EXT))?;
-            bincode::serialize_into(&mut f, &frame_hashes)?;
-        }
-
-        Ok(frame_hashes)
-    }
-
-    pub fn run(
-        &self,
-        hash_period: f32,
-        hash_duration: f32,
-        persist: bool,
-    ) -> anyhow::Result<Vec<FrameHashes>> {
-        #[cfg(feature = "rayon")]
-        let frame_hashes = self
-            .paths
-            .par_iter()
-            .map(|path| {
-                self.run_single(path, hash_period, hash_duration, persist)
-                    .unwrap()
-            })
-            .collect::<Vec<_>>();
-
-        #[cfg(not(feature = "rayon"))]
-        let frame_hashes = self
-            .paths
-            .iter()
-            .map(|path| {
-                self.run_single(path, hash_period, hash_duration, persist)
-                    .unwrap()
-            })
-            .collect::<Vec<_>>();
-
-        Ok(frame_hashes)
-    }
 }
 
 /// Compares two audio streams.
@@ -465,8 +183,8 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
 
     fn find_opening_and_ending(
         &self,
-        src_hashes: &FrameHashes,
-        dst_hashes: &FrameHashes,
+        src_hashes: &super::analyzer::FrameHashes,
+        dst_hashes: &super::analyzer::FrameHashes,
     ) -> OpeningAndEndingInfo {
         let _g = tracing::span!(tracing::Level::TRACE, "find_opening_and_ending");
 
@@ -532,7 +250,7 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
     }
 
     fn check_for_skip_file(&self, path: &Path) -> bool {
-        let skip_file = path.clone().with_extension(SKIP_FILE_EXT);
+        let skip_file = path.clone().with_extension(super::SKIP_FILE_EXT);
         skip_file.exists()
     }
 
@@ -547,7 +265,7 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
             return Ok(());
         }
 
-        let skip_file = path.clone().with_extension(SKIP_FILE_EXT);
+        let skip_file = path.clone().with_extension(super::SKIP_FILE_EXT);
         let mut skip_file = std::fs::File::create(skip_file)?;
         let data = serde_json::json!({"opening": opening, "ending": ending});
         serde_json::to_writer(&mut skip_file, &data)?;
@@ -589,8 +307,8 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
 
         let (src_frame_hashes, dst_frame_hashes) = if !analyze {
             // Make sure frame data files exist for these videos.
-            let src_data_path = src_path.clone().with_extension(FRAME_HASH_DATA_FILE_EXT);
-            let dst_data_path = dst_path.clone().with_extension(FRAME_HASH_DATA_FILE_EXT);
+            let src_data_path = src_path.clone().with_extension(super::FRAME_HASH_DATA_FILE_EXT);
+            let dst_data_path = dst_path.clone().with_extension(super::FRAME_HASH_DATA_FILE_EXT);
             if !src_data_path.exists() {
                 return Err(Error::FrameHashDataNotFound(src_data_path).into());
             }
@@ -601,10 +319,10 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
             // Load frame hash data from disk.
             let src_file = std::fs::File::open(&src_data_path)?;
             let dst_file = std::fs::File::open(&dst_data_path)?;
-            let src_frame_hashes: FrameHashes = bincode::deserialize_from(&src_file).expect(
+            let src_frame_hashes: super::analyzer::FrameHashes = bincode::deserialize_from(&src_file).expect(
                 &format!("invalid frame hash data file: {}", src_data_path.display()),
             );
-            let dst_frame_hashes: FrameHashes = bincode::deserialize_from(&dst_file).expect(
+            let dst_frame_hashes: super::analyzer::FrameHashes = bincode::deserialize_from(&dst_file).expect(
                 &format!("invalid frame hash data file: {}", dst_data_path.display()),
             );
 
@@ -617,18 +335,12 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
 
             let src_paths = vec![src_path];
             let dst_paths = vec![dst_path];
-            let src_analyzer = Analyzer::new(&src_paths, false)?;
-            let dst_analyzer = Analyzer::new(&dst_paths, false)?;
+            let src_analyzer = super::Analyzer::new(&src_paths, false)?;
+            let dst_analyzer = super::Analyzer::new(&dst_paths, false)?;
             let src_frame_hashes = src_analyzer
-                .run(DEFAULT_HASH_PERIOD, DEFAULT_HASH_DURATION, false)?
-                .into_iter()
-                .next()
-                .unwrap();
+                .run_single(&src_path, super::DEFAULT_HASH_PERIOD, super::DEFAULT_HASH_DURATION, false)?;
             let dst_frame_hashes = dst_analyzer
-                .run(DEFAULT_HASH_PERIOD, DEFAULT_HASH_DURATION, false)?
-                .into_iter()
-                .next()
-                .unwrap();
+                .run_single(&dst_path, super::DEFAULT_HASH_PERIOD, super::DEFAULT_HASH_DURATION, false)?;
             tracing::debug!("completed analysis for src");
 
             (src_frame_hashes, dst_frame_hashes)
