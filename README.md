@@ -4,6 +4,10 @@
 
 A tool that finds a needle (opening/intro and ending/credits) in a haystack (TV or anime episode).
 
+## Demo
+
+[![asciicast](https://asciinema.org/a/505691.svg)](https://asciinema.org/a/505691)
+
 ## Quickstart
 
 First, install needle:
@@ -42,7 +46,7 @@ $ cat ~/Movies/land-of-lustrous-ep1.needle.skip.json
 {"ending":[1332.3355712890625,1422.276611328125],"opening":null}
 ```
 
-### Overview
+## Overview
 
 `needle` has two subcommands: 1) **analyze** and 2) **search**.
 
@@ -98,14 +102,19 @@ needle search "~/Movies/Season 4" 112.07s user 16.01s system 810% cpu 15.802 tot
 
 Ah, so now the search step takes slightly longer than the analyze step! The reason is that the search step scales quadratically with the number of videos - each pair of videos needs to be checked separately. Ideally, you should only be running against an entire season once and then performing incremental searches for newly added videos, which is why skip files are important.
 
+## Configuration
+
+TODO
+
 ## Build
 
 ### Linux
 
-1. Install the `FFmpeg` dev libraries:
+1. Install the `FFmpeg` and `chromaprint` dev libraries:
 
 ```
 sudo apt install \
+    libchromaprint-dev \
     libavutil-dev \
     libavformat-dev \
     libswresample-dev \
@@ -118,18 +127,28 @@ sudo apt install \
 
 ### macOS
 
-1. Install `FFmpeg`:
+1. Install `FFmpeg` and `chromaprint`:
 
 ```
-brew install ffmpeg
+brew install ffmpeg chromaprint
 ```
 
 2. Run `cargo build`
 
 ### Windows
 
-1. Install `cargo-vcpkg`: `cargo install cargo-vcpkg`
-2. Install `vcpkg` deps: `cargo vcpkg build`
+1. Install `cargo-vcpkg`:
+
+```
+cargo install cargo-vcpkg
+```
+
+2. Install `vcpkg` deps:
+
+```
+cargo vcpkg build
+```
+
 3. Add additional libs to rustcflags:
 
 ```toml
@@ -152,7 +171,11 @@ rustflags = [
 ]
 ```
 
-4. Build: `cargo build --features static`
+4. Build:
+
+```
+cargo build --features static
+```
 
 **Note:** The steps above assume a *static* build.
 

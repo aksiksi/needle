@@ -154,7 +154,7 @@ struct Cli {
         global = true,
         default_value = "false",
         action(ArgAction::SetTrue),
-        help = "By default, video files are validated using ffmpeg, which is extremely accurate. Setting this flag will switch to just checking file headers."
+        help = "By default, video files are validated using FFmpeg, which is extremely accurate. Setting this flag will switch to just checking file headers."
     )]
     file_headers_only: bool,
 
