@@ -1,5 +1,7 @@
 # needle
 
+![Crates.io](https://img.shields.io/crates/v/needle-rs)
+
 A tool that finds a needle (opening/intro and ending/credits) in a haystack (TV or anime episode).
 
 ## Quickstart
@@ -7,7 +9,7 @@ A tool that finds a needle (opening/intro and ending/credits) in a haystack (TV 
 First, install needle:
 
 ```
-cargo install needle
+cargo install needle-rs
 ```
 
 Run a search for opening and endings in the first three episodes of [Land of the Lustrous](https://en.wikipedia.org/wiki/Land_of_the_Lustrous_(TV_series)):
