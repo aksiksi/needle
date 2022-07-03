@@ -722,6 +722,7 @@ impl<'a, T: AsRef<Path> + std::marker::Sync> Comparator<'a, T> {
             if use_skip_files && self.check_for_skip_file(v1) {
                 // TODO(aksiksi): Check MD5 hash of the video against the skip file to handle
                 // the case of a new file with the same name.
+                println!("Skipping {} due to existing skip file...", v1.display());
                 processed_videos.insert(v1);
                 continue;
             }
