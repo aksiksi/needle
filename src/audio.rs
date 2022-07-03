@@ -149,36 +149,6 @@ impl<'a, P: AsRef<Path> + 'a + Sync> Analyzer<'a, P> {
             .map(|ts| Duration::from_millis(ts as u64))
     }
 
-    // Seeks the video stream to the given timestamp. Under the hood, this uses
-    // the standard FFmpeg function, `av_seek_frame`.
-    fn seek_to_timestamp(
-        ctx: &mut ffmpeg_next::format::context::Input,
-        stream_idx: usize,
-        timestamp: Duration,
-    ) -> anyhow::Result<()> {
-        let time_base: f64 = ctx.stream(stream_idx).unwrap().time_base().into();
-        let duration = Duration::from_millis((ctx.duration() as f64 * time_base) as u64);
-
-        // Ensure that the provided timestamp is valid (i.e., doesn't exceed duration of the video).
-        anyhow::ensure!(
-            timestamp < duration,
-            Error::InvalidSeekTimestamp {
-                requested: timestamp,
-                duration,
-            }
-        );
-
-        // Convert timestamp from ms to seconds, then divide by time_base to get the timestamp
-        // in time_base units.
-        let timestamp = (timestamp.as_millis() as f64 / time_base / 1000.0) as i64;
-        ctx.seek_to_frame(
-            stream_idx as i32,
-            timestamp,
-            ffmpeg_next::format::context::input::SeekFlags::empty(),
-        )?;
-        Ok(())
-    }
-
     // Given an audio stream, computes the fingerprint for raw audio for the given duration.
     //
     // `count` can be used to limit the number of frames to process.
@@ -187,10 +157,7 @@ impl<'a, P: AsRef<Path> + 'a + Sync> Analyzer<'a, P> {
         stream_idx: usize,
         hash_duration: Duration,
         hash_period: Duration,
-        duration: Option<Duration>,
         threaded: bool,
-        // Debug options
-        start_ts: Option<Duration>,
     ) -> anyhow::Result<Vec<(u32, Duration)>> {
         let span = tracing::span!(tracing::Level::TRACE, "process_frames");
         let _enter = span.enter();
@@ -218,31 +185,11 @@ impl<'a, P: AsRef<Path> + 'a + Sync> Analyzer<'a, P> {
             )
             .unwrap();
 
-        // If a start time is provided, seek to the correct place in the stream.
-        if let Some(start_ts) = start_ts {
-            Self::seek_to_timestamp(ctx, stream_idx, start_ts).unwrap();
-        }
-        // Compute the end time based on provided start time.
-        let end_time = start_ts.and_then(|s| duration.map(|d| s + d));
-
         // Build an iterator over packets in the stream.
         let audio_packets = ctx
             .packets()
             .filter(|(s, _)| s.index() == stream_idx)
-            .map(|(s, p)| {
-                let time_base = f64::from(s.time_base());
-                let pts = p.pts().expect("unable to extract PTS from packet");
-                let pts = Duration::from_millis((pts as f64 * time_base * 1000.0) as u64);
-                (p, pts)
-            })
-            .take_while(|(_, pts)| {
-                if let Some(end_time) = end_time {
-                    *pts < end_time
-                } else {
-                    true
-                }
-            })
-            .map(|(p, _)| p);
+            .map(|(_, p)| p);
 
         for p in audio_packets {
             decoder.send_packet(&p).unwrap();
@@ -292,12 +239,7 @@ impl<'a, P: AsRef<Path> + 'a + Sync> Analyzer<'a, P> {
 
                     // Feed the i16 samples to Chromaprint. Since we are using the default sampling rate,
                     // Chromaprint will _not_ do any resampling internally.
-                    for (raw_fingerprint, mut ts) in fingerprinter.feed(samples).unwrap() {
-                        // Adjust the raw timestamp based on the actual stream start time. We need to do this because
-                        // the fingerprinter starts its clock at 0 and is unaware of actual video time.
-                        if let Some(start_ts) = start_ts {
-                            ts += start_ts;
-                        }
+                    for (raw_fingerprint, ts) in fingerprinter.feed(samples).unwrap() {
                         let hash = simhash32(raw_fingerprint.get());
                         hashes.push((hash, ts));
                     }
@@ -336,9 +278,7 @@ impl<'a, P: AsRef<Path> + 'a + Sync> Analyzer<'a, P> {
             stream_idx,
             Duration::from_secs_f32(hash_duration),
             Duration::from_secs_f32(hash_period),
-            None,
             threaded,
-            None,
         )?;
         tracing::debug!(
             num_hashes = frame_hashes.len(),
