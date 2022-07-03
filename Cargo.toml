@@ -1,7 +1,9 @@
 [package]
-name = "needle"
+name = "needle-rs"
 version = "0.1.0"
 edition = "2021"
+description = "Find openings and endings across video files"
+authors = ["Assil Ksiksi <assil@ksiksi.net>"]
 readme = "README.md"
 homepage = "https://github.com/aksiksi/needle"
 repository = "https://github.com/aksiksi/needle"
