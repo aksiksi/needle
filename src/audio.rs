@@ -114,21 +114,17 @@ struct SearchResult {
     ending: Option<(Duration, Duration)>,
 }
 
-pub struct Analyzer<P: AsRef<Path>> {
-    path: P,
+pub struct Analyzer<'a, P: AsRef<Path> + Sync> {
+    paths: &'a [P],
     threaded_decoding: bool,
 }
 
-impl<P: AsRef<Path>> Analyzer<P> {
-    pub fn new(path: P, threaded_decoding: bool) -> anyhow::Result<Self> {
+impl<'a, P: AsRef<Path> + 'a + Sync> Analyzer<'a, P> {
+    pub fn new(paths: &'a [P], threaded_decoding: bool) -> anyhow::Result<Self> {
         Ok(Self {
-            path,
+            paths,
             threaded_decoding,
         })
-    }
-
-    fn context(&self) -> anyhow::Result<ffmpeg_next::format::context::Input> {
-        Ok(ffmpeg_next::format::input(&self.path)?)
     }
 
     fn find_best_audio_stream(
@@ -318,8 +314,9 @@ impl<P: AsRef<Path>> Analyzer<P> {
         Ok(hashes)
     }
 
-    pub fn run(
+    fn run_single(
         &self,
+        path: impl AsRef<Path>,
         hash_period: f32,
         hash_duration: f32,
         persist: bool,
@@ -327,8 +324,8 @@ impl<P: AsRef<Path>> Analyzer<P> {
         let span = tracing::span!(tracing::Level::TRACE, "run");
         let _enter = span.enter();
 
-        let path = self.path.as_ref();
-        let mut ctx = self.context()?;
+        let path = path.as_ref();
+        let mut ctx = ffmpeg_next::format::input(&path)?;
         let stream = Self::find_best_audio_stream(&ctx);
         let stream_idx = stream.index();
         let threaded = self.threaded_decoding;
@@ -360,6 +357,35 @@ impl<P: AsRef<Path>> Analyzer<P> {
             let mut f = std::fs::File::create(path.with_extension(FRAME_HASH_DATA_FILE_EXT))?;
             bincode::serialize_into(&mut f, &frame_hashes)?;
         }
+
+        Ok(frame_hashes)
+    }
+
+    pub fn run(
+        &self,
+        hash_period: f32,
+        hash_duration: f32,
+        persist: bool,
+    ) -> anyhow::Result<Vec<FrameHashes>> {
+        #[cfg(feature = "rayon")]
+        let frame_hashes = self
+            .paths
+            .par_iter()
+            .map(|path| {
+                self.run_single(path, hash_period, hash_duration, persist)
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        #[cfg(not(feature = "rayon"))]
+        let frame_hashes = self
+            .paths
+            .iter()
+            .map(|path| {
+                self.run_single(path, hash_period, hash_duration, persist)
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
 
         Ok(frame_hashes)
     }
@@ -648,12 +674,20 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
             // Otherwise, compute the hash data now by analyzing the video files.
             tracing::debug!("starting in-place video analysis...");
 
-            let src_analyzer = Analyzer::new(&src_path, false)?;
-            let dst_analyzer = Analyzer::new(&dst_path, false)?;
-            let src_frame_hashes =
-                src_analyzer.run(DEFAULT_HASH_PERIOD, DEFAULT_HASH_DURATION, false)?;
-            let dst_frame_hashes =
-                dst_analyzer.run(DEFAULT_HASH_PERIOD, DEFAULT_HASH_DURATION, false)?;
+            let src_paths = vec![src_path];
+            let dst_paths = vec![dst_path];
+            let src_analyzer = Analyzer::new(&src_paths, false)?;
+            let dst_analyzer = Analyzer::new(&dst_paths, false)?;
+            let src_frame_hashes = src_analyzer
+                .run(DEFAULT_HASH_PERIOD, DEFAULT_HASH_DURATION, false)?
+                .into_iter()
+                .next()
+                .unwrap();
+            let dst_frame_hashes = dst_analyzer
+                .run(DEFAULT_HASH_PERIOD, DEFAULT_HASH_DURATION, false)?
+                .into_iter()
+                .next()
+                .unwrap();
             tracing::debug!("completed analysis for src");
 
             (src_frame_hashes, dst_frame_hashes)

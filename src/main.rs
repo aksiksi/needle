@@ -2,8 +2,6 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use clap::{ArgAction, CommandFactory, ErrorKind, Parser, Subcommand};
-#[cfg(feature = "rayon")]
-use rayon::prelude::*;
 
 use needle::audio;
 #[cfg(feature = "video")]
@@ -270,7 +268,11 @@ impl Cli {
                 );
             } else {
                 if self.disable_video_validation
-                    || needle::util::is_valid_video_file(path, !cfg!(feature = "video"), full_validation)
+                    || needle::util::is_valid_video_file(
+                        path,
+                        !cfg!(feature = "video"),
+                        full_validation,
+                    )
                 {
                     valid_video_files.push(path.clone());
                 }
@@ -303,20 +305,8 @@ fn main() -> anyhow::Result<()> {
             ..
         } => match mode {
             Mode::Audio => {
-                // Generate a list of analyzers, one per input video file.
-                let mut analyzers = Vec::new();
-                for video in &videos {
-                    analyzers.push(audio::Analyzer::new(video, threaded_decoding)?);
-                }
-
-                #[cfg(feature = "rayon")]
-                analyzers.par_iter().for_each(|analyzer| {
-                    analyzer.run(hash_period, hash_duration, true).unwrap();
-                });
-                #[cfg(not(feature = "rayon"))]
-                analyzers.iter().for_each(|analyzer| {
-                    analyzer.run(hash_period, hash_duration, true).unwrap();
-                });
+                let analyzer = audio::Analyzer::new(&videos, threaded_decoding)?;
+                analyzer.run(hash_period, hash_duration, true)?;
             }
             #[cfg(feature = "video")]
             Mode::Video => {
