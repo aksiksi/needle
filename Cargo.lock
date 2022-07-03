@@ -164,25 +164,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
-name = "chromaprint"
+name = "chromaprint-rust"
 version = "0.1.0"
-source = "git+https://github.com/aksiksi/chromaprint#bf3b5f46da2b1e28a06a9e0dd401911b07acb7c3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3bad203fc2b0e5b2d6148b748f7ecf47d45fdd6152f5b73bd1898c71064c0c34"
 dependencies = [
- "chromaprint-sys",
+ "chromaprint-sys-next",
  "thiserror",
 ]
 
 [[package]]
-name = "chromaprint-sys"
+name = "chromaprint-sys-next"
 version = "1.5.0"
-source = "git+https://github.com/aksiksi/chromaprint-sys#d309af8fec0a54f25c32dbc37a5a71185b7c9e99"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d25b4782ea6dbc452c3c46501ca19e220c6b4f132f7b5aed388643e02d4df3b"
 dependencies = [
  "bindgen 0.60.1",
  "cfg-if",
  "cmake",
  "libc",
  "pkg-config",
- "vcpkg",
 ]
 
 [[package]]
@@ -363,7 +364,8 @@ dependencies = [
 [[package]]
 name = "ffmpeg-next"
 version = "5.0.3"
-source = "git+https://github.com/aksiksi/rust-ffmpeg?rev=f20fa322af00b724350eda27a88d83d0b5eada81#f20fa322af00b724350eda27a88d83d0b5eada81"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "585e5eaf57eceaa199ba6f6a1f46bdad7992930bb7b45b40275d9445b5ba2bc8"
 dependencies = [
  "bitflags",
  "ffmpeg-sys-next",
@@ -658,7 +660,7 @@ dependencies = [
  "anyhow",
  "bincode",
  "blockhash",
- "chromaprint",
+ "chromaprint-rust",
  "clap",
  "ffmpeg-next",
  "image",

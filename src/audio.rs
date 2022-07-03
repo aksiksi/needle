@@ -1,4 +1,4 @@
-extern crate chromaprint;
+extern crate chromaprint_rust;
 extern crate ffmpeg_next;
 
 use std::collections::{BinaryHeap, HashMap, HashSet};
@@ -6,6 +6,7 @@ use std::fmt::Display;
 use std::path::Path;
 use std::time::Duration;
 
+use chromaprint_rust as chromaprint;
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "rayon")]
