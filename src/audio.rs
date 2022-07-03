@@ -564,6 +564,11 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
         }
     }
 
+    fn check_for_skip_file(&self, path: &Path) -> bool {
+        let skip_file = path.clone().with_extension(SKIP_FILE_EXT);
+        skip_file.exists()
+    }
+
     fn create_skip_file(&self, path: &Path, result: SearchResult) -> anyhow::Result<()> {
         let opening = result
             .opening
@@ -730,13 +735,22 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
 }
 
 impl<'a, T: AsRef<Path> + std::marker::Sync> Comparator<'a, T> {
-    pub fn run(&self, analyze: bool, display: bool, create_skip_files: bool) -> anyhow::Result<()> {
+    pub fn run(&self, analyze: bool, display: bool, use_skip_files: bool) -> anyhow::Result<()> {
         // Build a list of video pairs for actual search. Pairs should only appear once.
         // Given N videos, this will result in: (N * (N-1)) / 2 pairs
         let mut pairs = Vec::new();
         let mut processed_videos = HashSet::new();
         for (i, v1) in self.videos.iter().enumerate() {
             let v1 = v1.as_ref();
+
+            // Skip processing this video if it already has a skip file on disk.
+            if use_skip_files && self.check_for_skip_file(v1) {
+                // TODO(aksiksi): Check MD5 hash of the video against the skip file to handle
+                // the case of a new file with the same name.
+                processed_videos.insert(v1);
+                continue;
+            }
+
             for (j, v2) in self.videos.iter().enumerate() {
                 let v2 = v2.as_ref();
                 if i == j || processed_videos.contains(v2) {
@@ -775,7 +789,6 @@ impl<'a, T: AsRef<Path> + std::marker::Sync> Comparator<'a, T> {
         // to allow determining whether the path is a source (true) or dest (false) in the info
         // struct.
         let mut info_map: HashMap<&Path, Vec<(&OpeningAndEndingInfo, bool)>> = HashMap::new();
-
         for (src_path, dst_path, info) in &data {
             if let Some(v) = info_map.get_mut(*src_path) {
                 v.push((info, true));
@@ -801,7 +814,7 @@ impl<'a, T: AsRef<Path> + std::marker::Sync> Comparator<'a, T> {
             if display {
                 self.display_opening_ending_info(path, result);
             }
-            if create_skip_files {
+            if use_skip_files {
                 self.create_skip_file(path, result)?;
             }
         }

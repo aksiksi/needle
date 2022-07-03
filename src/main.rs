@@ -144,9 +144,9 @@ enum Commands {
             long,
             default_value = "false",
             action(ArgAction::SetTrue),
-            help = "Create skip files. These are JSON files that store the result of the search alongside each video file."
+            help = "Disable skip files. These are JSON files that store the result of the search alongside each video file. When this flag is set, if a skip file exists for a video, it will be skipped during the pairwise search. This is necessary for incremental search to work."
         )]
-        create_skip_files: bool,
+        no_skip_files: bool,
 
         #[clap(
             long,
@@ -346,7 +346,7 @@ fn main() -> anyhow::Result<()> {
             min_ending_duration,
             analyze,
             no_display,
-            create_skip_files,
+            no_skip_files,
             time_padding,
             ..
         } => {
@@ -373,7 +373,7 @@ fn main() -> anyhow::Result<()> {
                 min_ending_duration,
                 time_padding,
             );
-            comparator.run(analyze, !no_display, create_skip_files)?;
+            comparator.run(analyze, !no_display, !no_skip_files)?;
         }
     }
 
