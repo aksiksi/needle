@@ -8,8 +8,8 @@ use std::time::Duration;
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
 
-use crate::Error;
 use crate::util;
+use crate::Error;
 
 type ComparatorHeap = BinaryHeap<ComparatorHeapEntry>;
 
@@ -307,8 +307,12 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
 
         let (src_frame_hashes, dst_frame_hashes) = if !analyze {
             // Make sure frame data files exist for these videos.
-            let src_data_path = src_path.clone().with_extension(super::FRAME_HASH_DATA_FILE_EXT);
-            let dst_data_path = dst_path.clone().with_extension(super::FRAME_HASH_DATA_FILE_EXT);
+            let src_data_path = src_path
+                .clone()
+                .with_extension(super::FRAME_HASH_DATA_FILE_EXT);
+            let dst_data_path = dst_path
+                .clone()
+                .with_extension(super::FRAME_HASH_DATA_FILE_EXT);
             if !src_data_path.exists() {
                 return Err(Error::FrameHashDataNotFound(src_data_path).into());
             }
@@ -319,12 +323,16 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
             // Load frame hash data from disk.
             let src_file = std::fs::File::open(&src_data_path)?;
             let dst_file = std::fs::File::open(&dst_data_path)?;
-            let src_frame_hashes: super::analyzer::FrameHashes = bincode::deserialize_from(&src_file).expect(
-                &format!("invalid frame hash data file: {}", src_data_path.display()),
-            );
-            let dst_frame_hashes: super::analyzer::FrameHashes = bincode::deserialize_from(&dst_file).expect(
-                &format!("invalid frame hash data file: {}", dst_data_path.display()),
-            );
+            let src_frame_hashes: super::analyzer::FrameHashes =
+                bincode::deserialize_from(&src_file).expect(&format!(
+                    "invalid frame hash data file: {}",
+                    src_data_path.display()
+                ));
+            let dst_frame_hashes: super::analyzer::FrameHashes =
+                bincode::deserialize_from(&dst_file).expect(&format!(
+                    "invalid frame hash data file: {}",
+                    dst_data_path.display()
+                ));
 
             tracing::debug!("loaded hash frame data from disk");
 
@@ -333,14 +341,20 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
             // Otherwise, compute the hash data now by analyzing the video files.
             tracing::debug!("starting in-place video analysis...");
 
-            let src_paths = vec![src_path];
-            let dst_paths = vec![dst_path];
-            let src_analyzer = super::Analyzer::new(&src_paths, false)?;
-            let dst_analyzer = super::Analyzer::new(&dst_paths, false)?;
-            let src_frame_hashes = src_analyzer
-                .run_single(&src_path, super::DEFAULT_HASH_PERIOD, super::DEFAULT_HASH_DURATION, false)?;
-            let dst_frame_hashes = dst_analyzer
-                .run_single(&dst_path, super::DEFAULT_HASH_PERIOD, super::DEFAULT_HASH_DURATION, false)?;
+            let src_analyzer = super::Analyzer::default();
+            let dst_analyzer = super::Analyzer::default();
+            let src_frame_hashes = src_analyzer.run_single(
+                &src_path,
+                super::DEFAULT_HASH_PERIOD,
+                super::DEFAULT_HASH_DURATION,
+                false,
+            )?;
+            let dst_frame_hashes = dst_analyzer.run_single(
+                &dst_path,
+                super::DEFAULT_HASH_PERIOD,
+                super::DEFAULT_HASH_DURATION,
+                false,
+            )?;
             tracing::debug!("completed analysis for src");
 
             (src_frame_hashes, dst_frame_hashes)

@@ -305,7 +305,7 @@ fn main() -> anyhow::Result<()> {
             ..
         } => match mode {
             Mode::Audio => {
-                let analyzer = audio::Analyzer::new(&videos, threaded_decoding)?;
+                let analyzer = audio::Analyzer::from_files(&videos, threaded_decoding);
                 analyzer.run(hash_period, hash_duration, true)?;
             }
             #[cfg(feature = "video")]

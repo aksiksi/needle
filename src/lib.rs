@@ -16,4 +16,8 @@ pub enum Error {
     },
     #[error("frame hash data not found at: {0:?}")]
     FrameHashDataNotFound(PathBuf),
+    #[error("no paths provided to analyzer")]
+    AnalyzerMissingPaths,
 }
+
+pub type Result<T> = std::result::Result<T, Error>;

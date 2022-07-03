@@ -11,6 +11,8 @@ use std::time::Duration;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::Error;
+
 // TODO: Include MD5 hash to avoid duplicating work.
 #[derive(Deserialize, Serialize)]
 pub(crate) struct FrameHashes {
@@ -61,16 +63,25 @@ impl Decoder {
 
 #[derive(Debug)]
 pub struct Analyzer<'a, P: AsRef<Path> + Sync> {
-    paths: &'a [P],
+    paths: Option<&'a [P]>,
     threaded_decoding: bool,
 }
 
+impl Default for Analyzer<'_, &Path> {
+    fn default() -> Self {
+        Self {
+            paths: Default::default(),
+            threaded_decoding: Default::default(),
+        }
+    }
+}
+
 impl<'a, P: AsRef<Path> + 'a + Sync> Analyzer<'a, P> {
-    pub fn new(paths: &'a [P], threaded_decoding: bool) -> anyhow::Result<Self> {
-        Ok(Self {
-            paths,
+    pub fn from_files(paths: &'a [P], threaded_decoding: bool) -> Self {
+        Self {
+            paths: Some(paths),
             threaded_decoding,
-        })
+        }
     }
 
     fn find_best_audio_stream(
@@ -248,15 +259,14 @@ impl<'a, P: AsRef<Path> + 'a + Sync> Analyzer<'a, P> {
         Ok(frame_hashes)
     }
 
-    pub fn run(
-        &self,
-        hash_period: f32,
-        hash_duration: f32,
-        persist: bool,
-    ) -> anyhow::Result<()> {
+    pub fn run(&self, hash_period: f32, hash_duration: f32, persist: bool) -> anyhow::Result<()> {
+        if self.paths.is_none() {
+            return Err(Error::AnalyzerMissingPaths.into());
+        }
+
         #[cfg(feature = "rayon")]
-        self
-            .paths
+        self.paths
+            .unwrap()
             .par_iter()
             .map(|path| {
                 self.run_single(path, hash_period, hash_duration, persist)
@@ -265,8 +275,8 @@ impl<'a, P: AsRef<Path> + 'a + Sync> Analyzer<'a, P> {
             .collect::<Vec<_>>();
 
         #[cfg(not(feature = "rayon"))]
-        self
-            .paths
+        self.paths
+            .unwrap()
             .iter()
             .map(|path| {
                 self.run_single(path, hash_period, hash_duration, persist)
