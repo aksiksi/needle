@@ -1,0 +1,51 @@
+name: Run tests
+
+on:
+  push:
+    paths-ignore:
+      - '*.md'
+    branches:
+      - main
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test-linux:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    # Cache Rust dependencies.
+    - uses: Swatinem/rust-cache@v1
+    - name: Install dependencies
+      run: |
+        sudo apt install \
+          libchromaprint-dev \
+          libavutil-dev \
+          libavformat-dev \
+          libswresample-dev \
+          libavcodec-dev \
+          libavfilter-dev \
+          libavdevice-dev
+    - name: Build debug version
+      run: cargo build -v
+    - name: Run tests
+      run: cargo test -v
+    - name: Compress binary
+      run: cd target/debug && tar cvzf needle-main-linux-amd64.tar.gz needle
+
+  test-macos:
+    if: ${{ false }} # disable for now
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v3
+    # Cache Rust dependencies.
+    - uses: Swatinem/rust-cache@v1
+    - name: Install dependencies
+      run: brew install ffmpeg chromaprint
+    - name: Build debug version
+      run: cargo build -v
+    - name: Run tests
+      run: cargo test -v
+    - name: Compress binary
+      run: cd target/debug && tar cvzf needle-main-macos-amd64.tar.gz needle

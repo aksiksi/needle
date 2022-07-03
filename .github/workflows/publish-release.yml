@@ -1,0 +1,70 @@
+name: Publish release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Publish new version to crates.io
+      run: cargo publish
+  release-linux:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Run tests
+      run: cargo test -v
+    - name: Install dependencies
+      run: |
+        sudo apt install \
+          libchromaprint-dev \
+          libavutil-dev \
+          libavformat-dev \
+          libswresample-dev \
+          libavcodec-dev \
+          libavfilter-dev \
+          libavdevice-dev
+    - name: Build release version
+      run: cargo build -v --release
+    - name: Create a new GH release
+      id: release
+      uses: google-github-actions/release-please-action@v3.1
+      with:
+        release-type: rust
+    - name: Compress binary
+      run: cd target/release && tar cvzf needle-{{ steps.release.outputs.tag_name }}-linux-amd64.tar.gz needle
+    - name: Upload binary to the release
+      uses: softprops/action-gh-release@v1
+      if: steps.release.outputs.release_created
+      with:
+        tag_name: ${{ steps.release.outputs.tag_name }}
+        files: target/release/needle-{{ steps.release.outputs.tag_name }}-linux-amd64.tar.gz
+  publish-macos:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Run tests
+      run: cargo test -v
+    - name: Install dependencies
+      run: brew install ffmpeg chromaprint
+    - name: Build release version
+      run: cargo build -v --release
+    - name: Create a new GH release
+      id: release
+      uses: google-github-actions/release-please-action@v3.1
+      with:
+        release-type: rust
+    - name: Compress binary
+      run: cd target/release && tar cvzf needle-{{ steps.release.outputs.tag_name }}-macos-amd64.tar.gz needle
+    - name: Upload binary to the release
+      uses: softprops/action-gh-release@v1
+      if: steps.release.outputs.release_created && matrix.os == 'macos-latest'
+      with:
+        tag_name: ${{ steps.release.outputs.tag_name }}
+        files: target/release/needle-{{ steps.release.outputs.tag_name }}-macos-amd64.tar.gz
