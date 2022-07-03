@@ -2,9 +2,13 @@
 
 A tool that finds a needle (opening/intro and ending/credits) in a haystack (TV or anime episode).
 
-## Usage
+## Quickstart
 
-### Quickstart
+First, install needle:
+
+```
+cargo install needle
+```
 
 Run a search for opening and endings in the first three episodes of [Land of the Lustrous](https://en.wikipedia.org/wiki/Land_of_the_Lustrous_(TV_series)):
 
@@ -96,7 +100,7 @@ Ah, so now the search step takes slightly longer than the analyze step! The reas
 
 ### Linux
 
-1. Install the `ffmpeg` dev libraries:
+1. Install the `FFmpeg` dev libraries:
 
 ```
 sudo apt install \
@@ -112,7 +116,7 @@ sudo apt install \
 
 ### macOS
 
-1. Install `ffmpeg`:
+1. Install `FFmpeg`:
 
 ```
 brew install ffmpeg
@@ -130,7 +134,7 @@ brew install ffmpeg
 # ~/.cargo/config.toml
 
 [target.x86_64-pc-windows-msvc]
-# ffmpeg static build
+# FFmpeg static build
 rustflags = [
     "-C", "link-arg=strmiids.lib",
     "-C", "link-arg=mf.lib",

@@ -14,7 +14,7 @@ pub enum Error {
     },
 }
 
-/// Wraps the `ffmpeg` video decoder.
+/// Wraps the `FFmpeg` video decoder.
 struct VideoDecoder {
     decoder: ffmpeg_next::codec::decoder::Video,
     converter: Option<ffmpeg_next::software::scaling::context::Context>,
@@ -84,7 +84,7 @@ impl VideoDecoder {
     }
 }
 
-// Wraps an ffmpeg GRAY8 video frame to implement [blockhash::Image].
+// Wraps an FFmpeg GRAY8 video frame to implement [blockhash::Image].
 struct GrayFrameView<'a> {
     width: u32,
     height: u32,
@@ -182,7 +182,7 @@ impl VideoComparator {
     }
 
     // Seeks the video stream to the given timestamp. Under the hood, this uses
-    // the standard ffmpeg/libav function, `av_seek_frame`.
+    // the standard FFmpeg function, `av_seek_frame`.
     fn seek_to_timestamp(
         ctx: &mut ffmpeg_next::format::context::Input,
         stream_idx: usize,

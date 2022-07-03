@@ -2,6 +2,20 @@
 name = "needle"
 version = "0.1.0"
 edition = "2021"
+readme = "README.md"
+homepage = "https://github.com/aksiksi/needle"
+repository = "https://github.com/aksiksi/needle"
+license = "MIT"
+keywords = ["multimedia", "ffmpeg"]
+categories = ["command-line-utilities", "multimedia", "multimedia::audio"]
+
+[lib]
+name = "needle"
+path = "src/lib.rs"
+
+[[bin]]
+name = "needle"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
@@ -35,4 +49,3 @@ rev = "cef0b3ec767df6e83806899fe9525f6cf8d7bc91"
 
 [package.metadata.vcpkg.target]
 x86_64-pc-windows-msvc = { triplet = "x64-windows-static-md", dependencies = ["ffmpeg"] }
-

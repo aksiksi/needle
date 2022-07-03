@@ -35,7 +35,7 @@ pub struct FrameHashes {
     data: Vec<(u32, Duration)>,
 }
 
-/// Wraps the `ffmpeg` audio decoder.
+/// Wraps the `FFmpeg` audio decoder.
 struct Decoder {
     decoder: ffmpeg_next::codec::decoder::Audio,
 }
@@ -154,7 +154,7 @@ impl<P: AsRef<Path>> Analyzer<P> {
     }
 
     // Seeks the video stream to the given timestamp. Under the hood, this uses
-    // the standard ffmpeg/libav function, `av_seek_frame`.
+    // the standard FFmpeg function, `av_seek_frame`.
     fn seek_to_timestamp(
         ctx: &mut ffmpeg_next::format::context::Input,
         stream_idx: usize,

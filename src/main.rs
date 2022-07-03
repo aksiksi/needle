@@ -5,28 +5,15 @@ use clap::{ArgAction, CommandFactory, ErrorKind, Parser, Subcommand};
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
 
-mod audio;
-mod simhash;
-mod util;
+use needle::audio;
 #[cfg(feature = "video")]
-mod video;
+use needle::video;
 
 #[derive(clap::ValueEnum, Clone, Debug)]
 enum Mode {
     Audio,
     #[cfg(feature = "video")]
     Video,
-}
-
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    #[error("invalid timestamp for seek: requested={requested:?} duration={duration:?}")]
-    InvalidSeekTimestamp {
-        requested: Duration,
-        duration: Duration,
-    },
-    #[error("frame hash data not found at: {0:?}")]
-    FrameHashDataNotFound(PathBuf),
 }
 
 #[derive(Debug, Subcommand)]
@@ -67,7 +54,7 @@ enum Commands {
             long,
             default_value = "false",
             action(ArgAction::SetTrue),
-            help = "Enable multi-threaded decoding in ffmpeg."
+            help = "Enable multi-threaded decoding in FFmpeg."
         )]
         threaded_decoding: bool,
     },
@@ -273,7 +260,7 @@ impl Cli {
                         })
                         .filter(|p| {
                             self.disable_video_validation
-                                || util::is_valid_video_file(
+                                || needle::util::is_valid_video_file(
                                     p,
                                     !cfg!(feature = "video"),
                                     full_validation,
@@ -283,7 +270,7 @@ impl Cli {
                 );
             } else {
                 if self.disable_video_validation
-                    || util::is_valid_video_file(path, !cfg!(feature = "video"), full_validation)
+                    || needle::util::is_valid_video_file(path, !cfg!(feature = "video"), full_validation)
                 {
                     valid_video_files.push(path.clone());
                 }
