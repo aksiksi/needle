@@ -10,9 +10,9 @@ A tool that finds a needle (opening/intro and ending/credits) in a haystack (TV 
 
 ## Quickstart
 
-First, install needle:
+Install needle:
 
-```
+```bash
 cargo install needle-rs
 ```
 
@@ -108,12 +108,38 @@ TODO
 
 ## Build
 
-### Linux
+### Linux (Debian/Ubuntu)
 
-1. Install the `FFmpeg` and `chromaprint` dev libraries:
+1. Install `cmake`, `FFmpeg` libraries, and `fftw3` (optional, but recommended):
 
-```
+```bash
 sudo apt install \
+    pkg-config \
+    cmake \
+    libfftw3-dev \
+    libavutil-dev \
+    libavformat-dev \
+    libswresample-dev \
+    libavcodec-dev \
+    libavfilter-dev \
+    libavdevice-dev
+```
+
+2. Build:
+
+```bash
+cargo build --release
+```
+
+This will **dynamically** link against FFmpeg and statically link `chromaprint`.
+
+#### Dynamic
+
+Install libraries:
+
+```bash
+sudo apt install \
+    pkg-config \
     libchromaprint-dev \
     libavutil-dev \
     libavformat-dev \
@@ -123,17 +149,27 @@ sudo apt install \
     libavdevice-dev
 ```
 
-2. Run `cargo build`
+Build:
+
+```bash
+CHROMAPRINT_SYS_DYNAMIC=1 cargo build --release
+```
 
 ### macOS
 
-1. Install `FFmpeg` and `chromaprint`:
+1. Install `cmake` and `FFmpeg`:
 
 ```
-brew install ffmpeg chromaprint
+brew install cmake pkg-config ffmpeg
 ```
 
-2. Run `cargo build`
+2. Build:
+
+```
+cargo build --release
+```
+
+This will **dynamically** link against FFmpeg. `chromaprint` will be statically linked.
 
 ### Windows
 
@@ -149,33 +185,37 @@ cargo install cargo-vcpkg
 cargo vcpkg build
 ```
 
-3. Add additional libs to rustcflags:
+3. Build:
 
-```toml
-# ~/.cargo/config.toml
-
-[target.x86_64-pc-windows-msvc]
-# FFmpeg static build
-rustflags = [
-    "-C", "link-arg=strmiids.lib",
-    "-C", "link-arg=mf.lib",
-    "-C", "link-arg=mfplat.lib",
-    "-C", "link-arg=mfplay.lib",
-    "-C", "link-arg=mfreadwrite.lib",
-    "-C", "link-arg=mfuuid.lib",
-    "-C", "link-arg=dxva2.lib",
-    "-C", "link-arg=evr.lib",
-    "-C", "link-arg=vfw32.lib",
-    "-C", "link-arg=shlwapi.lib",
-    "-C", "link-arg=oleaut32.lib"
-]
+```bash
+# Statically link against both FFmpeg and chromaprint
+cargo build --release --features static
 ```
 
-4. Build:
+To dynamically link:
+
+1. Set the following environment variables:
+
+```powershell
+# Powershell
+$env:VCPKGRS_DYNAMIC='1'
+$env:VCPKGRS_TRIPLET='x64-windows'
+```
+
+```bash
+# Git bash
+export VCPKGRS_DYNAMIC=1
+export VCPKGRS_TRIPLET='x64-windows'
+```
+
+2. Build deps:
 
 ```
-cargo build --features static
+cargo vcpkg build
 ```
 
-**Note:** The steps above assume a *static* build.
+3. Build `needle`:
 
+```
+cargo build --release
+```
