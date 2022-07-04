@@ -20,7 +20,6 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt install \
-          libchromaprint-dev \
           libavutil-dev \
           libavformat-dev \
           libswresample-dev \
@@ -31,21 +30,3 @@ jobs:
       run: cargo build -v
     - name: Run tests
       run: cargo test -v
-    - name: Compress binary
-      run: cd target/debug && tar cvzf needle-main-linux-amd64.tar.gz needle
-
-  macos:
-    if: ${{ false }} # disable for now
-    runs-on: macos-latest
-    steps:
-    - uses: actions/checkout@v3
-    # Cache Rust dependencies.
-    - uses: Swatinem/rust-cache@v1
-    - name: Install dependencies
-      run: brew install ffmpeg chromaprint
-    - name: Build debug version
-      run: cargo build -v
-    - name: Run tests
-      run: cargo test -v
-    - name: Compress binary
-      run: cd target/debug && tar cvzf needle-main-macos-amd64.tar.gz needle
