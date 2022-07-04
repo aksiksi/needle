@@ -159,9 +159,9 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "chromaprint-rust"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3bad203fc2b0e5b2d6148b748f7ecf47d45fdd6152f5b73bd1898c71064c0c34"
+checksum = "c1cc4d6d4e157ffce0983b19e3a70498e57894808e1309a0a9e8718769e10c01"
 dependencies = [
  "chromaprint-sys-next",
  "thiserror",
@@ -169,15 +169,16 @@ dependencies = [
 
 [[package]]
 name = "chromaprint-sys-next"
-version = "1.5.0"
+version = "1.5.1+01"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d25b4782ea6dbc452c3c46501ca19e220c6b4f132f7b5aed388643e02d4df3b"
+checksum = "e83ce9729801fb5fa87a077a5e6690a652f78d3081ec1597cc82d8d310dfafe8"
 dependencies = [
  "bindgen 0.60.1",
  "cfg-if",
  "cmake",
  "libc",
  "pkg-config",
+ "vcpkg",
 ]
 
 [[package]]
@@ -649,7 +650,7 @@ dependencies = [
 
 [[package]]
 name = "needle-rs"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bincode",
  "blockhash",
