@@ -1,4 +1,4 @@
-name: Run tests
+name: test
 
 on:
   push:
@@ -11,7 +11,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test-linux:
+  linux:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
@@ -34,7 +34,7 @@ jobs:
     - name: Compress binary
       run: cd target/debug && tar cvzf needle-main-linux-amd64.tar.gz needle
 
-  test-macos:
+  macos:
     if: ${{ false }} # disable for now
     runs-on: macos-latest
     steps:
