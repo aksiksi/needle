@@ -36,7 +36,7 @@ rayon = { version = "1.5", optional = true }
 infer = { version = "0.8", default-features = false }
 
 [features]
-default = ["rayon"]
+default = ["rayon", "chromaprint-rust/static"]
 video = ["blockhash", "image"]
 static = ["chromaprint-rust/static", "ffmpeg-next/static"]
 

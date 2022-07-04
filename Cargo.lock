@@ -169,9 +169,9 @@ dependencies = [
 
 [[package]]
 name = "chromaprint-sys-next"
-version = "1.5.1+01"
+version = "1.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e83ce9729801fb5fa87a077a5e6690a652f78d3081ec1597cc82d8d310dfafe8"
+checksum = "8d704c45992c5ecaef4b233c2edacb7a8ec31bf055d734e776e98812f2e7554a"
 dependencies = [
  "bindgen 0.60.1",
  "cfg-if",
