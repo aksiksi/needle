@@ -1,6 +1,6 @@
-use core::ops::{AddAssign, BitAnd, BitOrAssign, SubAssign, Shl};
+use core::ops::{AddAssign, BitAnd, BitOrAssign, Shl, SubAssign};
 
-use num_traits::{FromPrimitive, Num, ops::wrapping::WrappingSub};
+use num_traits::{ops::wrapping::WrappingSub, FromPrimitive, Num};
 
 /// 32-bit version of SimHash.
 #[inline]
@@ -29,7 +29,12 @@ where
         + Shl<Output = T>
         + Copy,
 {
-    assert_eq!(std::mem::size_of::<T>() * 8, N, "size of T must be equal to {} bits", N);
+    assert_eq!(
+        std::mem::size_of::<T>() * 8,
+        N,
+        "size of T must be equal to {} bits",
+        N
+    );
 
     let mut buf = [0i64; N];
 

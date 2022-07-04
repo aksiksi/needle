@@ -5,6 +5,8 @@ extern crate image;
 use std::path::Path;
 use std::time::Duration;
 
+use crate::{Error, Result};
+
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("invalid timestamp for seek: requested={requested:?} duration={duration:?}")]
@@ -30,10 +32,7 @@ impl VideoDecoder {
         config
     }
 
-    fn from_stream(
-        stream: ffmpeg_next::format::stream::Stream,
-        threaded: bool,
-    ) -> anyhow::Result<Self> {
+    fn from_stream(stream: ffmpeg_next::format::stream::Stream, threaded: bool) -> Result<Self> {
         let ctx = ffmpeg_next::codec::context::Context::from_parameters(stream.parameters())?;
         let mut decoder = ctx.decoder();
 
@@ -59,11 +58,11 @@ impl VideoDecoder {
         self.decoder.width()
     }
 
-    fn send_packet(&mut self, packet: &ffmpeg_next::packet::Packet) -> anyhow::Result<()> {
+    fn send_packet(&mut self, packet: &ffmpeg_next::packet::Packet) -> Result<()> {
         Ok(self.decoder.send_packet(packet)?)
     }
 
-    fn set_converter(&mut self, format: ffmpeg_next::format::Pixel) -> anyhow::Result<()> {
+    fn set_converter(&mut self, format: ffmpeg_next::format::Pixel) -> Result<()> {
         self.converter = Some(self.decoder.converter(format)?);
         Ok(())
     }
@@ -72,14 +71,14 @@ impl VideoDecoder {
         &mut self,
         frame: &ffmpeg_next::frame::Video,
         converted_frame: &mut ffmpeg_next::frame::Video,
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         if let Some(converter) = &mut self.converter {
             converter.run(frame, converted_frame)?;
         }
         Ok(())
     }
 
-    fn receive_frame(&mut self, frame: &mut ffmpeg_next::frame::Video) -> anyhow::Result<()> {
+    fn receive_frame(&mut self, frame: &mut ffmpeg_next::frame::Video) -> Result<()> {
         Ok(self.decoder.receive_frame(frame)?)
     }
 }
@@ -115,7 +114,7 @@ pub struct VideoComparator {
 }
 
 impl VideoComparator {
-    pub fn new<P, Q>(src_path: P, dst_path: Q) -> anyhow::Result<Self>
+    pub fn new<P, Q>(src_path: P, dst_path: Q) -> Result<Self>
     where
         P: AsRef<Path>,
         Q: AsRef<Path>,
@@ -139,11 +138,11 @@ impl VideoComparator {
             .expect("unable to find a video stream")
     }
 
-    fn src_decoder(&mut self) -> anyhow::Result<VideoDecoder> {
+    fn src_decoder(&mut self) -> Result<VideoDecoder> {
         VideoDecoder::from_stream(self.src_stream(), false)
     }
 
-    fn dst_decoder(&mut self) -> anyhow::Result<VideoDecoder> {
+    fn dst_decoder(&mut self) -> Result<VideoDecoder> {
         VideoDecoder::from_stream(self.dst_stream(), false)
     }
 
@@ -179,36 +178,6 @@ impl VideoComparator {
             .map(|s| f64::from(s.time_base()))
             .and_then(|time_base| frame.timestamp().map(|t| t as f64 * time_base * 1000.0))
             .map(|ts| Duration::from_millis(ts as u64))
-    }
-
-    // Seeks the video stream to the given timestamp. Under the hood, this uses
-    // the standard FFmpeg function, `av_seek_frame`.
-    fn seek_to_timestamp(
-        ctx: &mut ffmpeg_next::format::context::Input,
-        stream_idx: usize,
-        timestamp: Duration,
-    ) -> anyhow::Result<()> {
-        let time_base: f64 = ctx.stream(stream_idx).unwrap().time_base().into();
-        let duration = Duration::from_millis((ctx.duration() as f64 * time_base) as u64);
-
-        // Ensure that the provided timestamp is valid (i.e., doesn't exceed duration of the video).
-        anyhow::ensure!(
-            timestamp < duration,
-            Error::InvalidSeekTimestamp {
-                requested: timestamp,
-                duration,
-            }
-        );
-
-        // Convert timestamp from ms to seconds, then divide by time_base to get the timestamp
-        // in time_base units.
-        let timestamp = (timestamp.as_millis() as f64 / time_base / 1000.0) as i64;
-        ctx.seek_to_frame(
-            stream_idx as i32,
-            timestamp,
-            ffmpeg_next::format::context::input::SeekFlags::empty(),
-        )?;
-        Ok(())
     }
 
     // Given a video stream, applies the function `F` to each frame in the stream and
@@ -273,7 +242,7 @@ impl VideoComparator {
             .collect()
     }
 
-    pub fn compare(&mut self, _count: usize) -> anyhow::Result<()> {
+    pub fn compare(&mut self, _count: usize) -> Result<()> {
         let (src_stream, dst_stream) = (self.src_stream(), self.dst_stream());
         let src_stream_idx = src_stream.index();
         let dst_stream_idx = dst_stream.index();
@@ -284,9 +253,6 @@ impl VideoComparator {
 
         let packets = Self::get_all_packets(&mut self.src_ctx, src_stream_idx);
         tracing::debug!(num_packets = packets.len());
-
-        Self::seek_to_timestamp(&mut self.src_ctx, src_stream_idx, Duration::from_secs(208))?;
-        Self::seek_to_timestamp(&mut self.dst_ctx, dst_stream_idx, Duration::from_secs(174))?;
 
         let map_frame_fn = |output_prefix: Option<&'static str>| {
             move |f: &ffmpeg_next::frame::video::Video, s: &ffmpeg_next::format::stream::Stream| {
@@ -346,8 +312,8 @@ fn save_frame<P: AsRef<Path>>(
 }
 
 // Load a frame into a `Vec` of bytes.
-    #[allow(unused)]
-fn load_frame<P: AsRef<Path>>(path: P) -> anyhow::Result<Vec<u8>> {
-    let img_buf = image::io::Reader::open(path)?.decode()?;
+#[allow(unused)]
+fn load_frame<P: AsRef<Path>>(path: P) -> Result<Vec<u8>> {
+    let img_buf = image::io::Reader::open(path)?.decode().unwrap();
     Ok(img_buf.to_luma8().to_vec())
 }

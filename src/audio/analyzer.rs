@@ -11,7 +11,7 @@ use std::time::Duration;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::Error;
+use crate::{Error, Result};
 
 // TODO: Include MD5 hash to avoid duplicating work.
 #[derive(Deserialize, Serialize)]
@@ -36,10 +36,7 @@ impl Decoder {
         config
     }
 
-    fn from_stream(
-        stream: ffmpeg_next::format::stream::Stream,
-        threaded: bool,
-    ) -> anyhow::Result<Self> {
+    fn from_stream(stream: ffmpeg_next::format::stream::Stream, threaded: bool) -> Result<Self> {
         let ctx = ffmpeg_next::codec::context::Context::from_parameters(stream.parameters())?;
         let mut decoder = ctx.decoder();
 
@@ -52,11 +49,11 @@ impl Decoder {
         Ok(Self { decoder })
     }
 
-    fn send_packet(&mut self, packet: &ffmpeg_next::packet::Packet) -> anyhow::Result<()> {
+    fn send_packet(&mut self, packet: &ffmpeg_next::packet::Packet) -> Result<()> {
         Ok(self.decoder.send_packet(packet)?)
     }
 
-    fn receive_frame(&mut self, frame: &mut ffmpeg_next::frame::Audio) -> anyhow::Result<()> {
+    fn receive_frame(&mut self, frame: &mut ffmpeg_next::frame::Audio) -> Result<()> {
         Ok(self.decoder.receive_frame(frame)?)
     }
 }
@@ -115,7 +112,7 @@ impl<'a, P: AsRef<Path> + 'a + Sync> Analyzer<'a, P> {
         hash_duration: Duration,
         hash_period: Duration,
         threaded: bool,
-    ) -> anyhow::Result<Vec<(u32, Duration)>> {
+    ) -> Result<Vec<(u32, Duration)>> {
         let span = tracing::span!(tracing::Level::TRACE, "process_frames");
         let _enter = span.enter();
 
@@ -219,7 +216,7 @@ impl<'a, P: AsRef<Path> + 'a + Sync> Analyzer<'a, P> {
         hash_period: f32,
         hash_duration: f32,
         persist: bool,
-    ) -> anyhow::Result<FrameHashes> {
+    ) -> Result<FrameHashes> {
         let span = tracing::span!(tracing::Level::TRACE, "run");
         let _enter = span.enter();
 
@@ -259,7 +256,7 @@ impl<'a, P: AsRef<Path> + 'a + Sync> Analyzer<'a, P> {
         Ok(frame_hashes)
     }
 
-    pub fn run(&self, hash_period: f32, hash_duration: f32, persist: bool) -> anyhow::Result<()> {
+    pub fn run(&self, hash_period: f32, hash_duration: f32, persist: bool) -> Result<()> {
         if self.paths.is_none() {
             return Err(Error::AnalyzerMissingPaths.into());
         }

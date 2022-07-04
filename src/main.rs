@@ -283,7 +283,7 @@ impl Cli {
     }
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> needle::Result<()> {
     let subscriber = tracing_subscriber::FmtSubscriber::builder()
         .with_max_level(tracing::Level::INFO)
         .finish();

@@ -9,7 +9,7 @@ use std::time::Duration;
 use rayon::prelude::*;
 
 use crate::util;
-use crate::Error;
+use crate::{Error, Result};
 
 type ComparatorHeap = BinaryHeap<ComparatorHeapEntry>;
 
@@ -254,7 +254,7 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
         skip_file.exists()
     }
 
-    fn create_skip_file(&self, path: &Path, result: SearchResult) -> anyhow::Result<()> {
+    fn create_skip_file(&self, path: &Path, result: SearchResult) -> Result<()> {
         let opening = result
             .opening
             .map(|(start, end)| (start.as_secs_f32(), end.as_secs_f32()));
@@ -302,7 +302,7 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
         src_path: &Path,
         dst_path: &Path,
         analyze: bool,
-    ) -> anyhow::Result<OpeningAndEndingInfo> {
+    ) -> Result<OpeningAndEndingInfo> {
         tracing::debug!("started audio comparator");
 
         let (src_frame_hashes, dst_frame_hashes) = if !analyze {
@@ -436,7 +436,7 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
 }
 
 impl<'a, T: AsRef<Path> + std::marker::Sync> Comparator<'a, T> {
-    pub fn run(&self, analyze: bool, display: bool, use_skip_files: bool) -> anyhow::Result<()> {
+    pub fn run(&self, analyze: bool, display: bool, use_skip_files: bool) -> Result<()> {
         // Build a list of video pairs for actual search. Pairs should only appear once.
         // Given N videos, this will result in: (N * (N-1)) / 2 pairs
         let mut pairs = Vec::new();
