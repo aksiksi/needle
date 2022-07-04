@@ -1,0 +1,15 @@
+# Windows FFmpeg static build
+[target.x86_64-pc-windows-msvc]
+rustflags = [
+    "-C", "link-arg=strmiids.lib",
+    "-C", "link-arg=mf.lib",
+    "-C", "link-arg=mfplat.lib",
+    "-C", "link-arg=mfplay.lib",
+    "-C", "link-arg=mfreadwrite.lib",
+    "-C", "link-arg=mfuuid.lib",
+    "-C", "link-arg=dxva2.lib",
+    "-C", "link-arg=evr.lib",
+    "-C", "link-arg=vfw32.lib",
+    "-C", "link-arg=shlwapi.lib",
+    "-C", "link-arg=oleaut32.lib"
+]

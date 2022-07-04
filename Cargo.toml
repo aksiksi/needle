@@ -47,6 +47,7 @@ vcpkg = "0.2"
 [package.metadata.vcpkg]
 git = "https://github.com/microsoft/vcpkg"
 rev = "cef0b3ec767df6e83806899fe9525f6cf8d7bc91"
+dependencies = ["ffmpeg"]
 
 [package.metadata.vcpkg.target]
 x86_64-pc-windows-msvc = { triplet = "x64-windows-static-md", dependencies = ["ffmpeg"] }
