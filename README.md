@@ -10,11 +10,8 @@ A tool that finds a needle (opening/intro and ending/credits) in a haystack (TV 
 
 ## Quickstart
 
-Install needle:
-
-```bash
-cargo install needle-rs
-```
+1. [Install dependencies](#dependencies) for your platform (if any)
+2. Download the latest `needle` binary for your platform from the [releases page](https://github.com/aksiksi/needle/releases)
 
 Run a search for opening and endings in the first three episodes of [Land of the Lustrous](https://en.wikipedia.org/wiki/Land_of_the_Lustrous_(TV_series)):
 
@@ -106,6 +103,37 @@ Ah, so now the search step takes slightly longer than the analyze step! The reas
 
 TODO
 
+## Install
+
+There are currently two ways to install `needle`:
+
+1. Grab the latest binary from the [releases page](https://github.com/aksiksi/needle/releases)
+    * **Prerequisites:** Install [runtime dependencies](#dependencies) for your platform
+2. `cargo install needle-rs`
+    * **Prerequisites:** Install [build dependencies](#build) for your platform
+
+## Dependencies
+
+### Linux (Debian/Ubuntu)
+
+Download the FFmpeg libraries:
+
+```bash
+sudo apt install \
+    libavutil56 \
+    libavformat58 \
+    libswresample3 \
+    libavcodec58
+```
+
+### macOS
+
+Install FFmpeg and libraries:
+
+```bash
+brew install ffmpeg
+```
+
 ## Build
 
 ### Linux (Debian/Ubuntu)
@@ -126,7 +154,7 @@ sudo apt install \
 2. Build:
 
 ```bash
-cargo build --release
+cargo install --path .
 ```
 
 This will **dynamically** link against FFmpeg and statically link `chromaprint`.
@@ -148,7 +176,7 @@ sudo apt install \
 Build:
 
 ```bash
-CHROMAPRINT_SYS_DYNAMIC=1 cargo build --release
+CHROMAPRINT_SYS_DYNAMIC=1 cargo install --path .
 ```
 
 ### macOS
@@ -162,7 +190,7 @@ brew install cmake pkg-config ffmpeg
 2. Build:
 
 ```
-cargo build --release
+cargo install --path .
 ```
 
 This will **dynamically** link against FFmpeg. `chromaprint` will be statically linked.
