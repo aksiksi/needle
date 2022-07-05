@@ -1,0 +1,56 @@
+[package]
+name = "needle-rs"
+version = "0.1.2"
+edition = "2021"
+description = "Find openings and endings across video files"
+authors = ["Assil Ksiksi <assil@ksiksi.net>"]
+readme = "README.md"
+homepage = "https://github.com/aksiksi/needle"
+repository = "https://github.com/aksiksi/needle"
+license = "MIT"
+keywords = ["multimedia", "ffmpeg"]
+categories = ["command-line-utilities", "multimedia", "multimedia::audio"]
+exclude = [
+    # Test resources
+    "resources/*",
+]
+
+[lib]
+name = "needle"
+path = "src/lib.rs"
+
+[[bin]]
+name = "needle"
+path = "src/main.rs"
+
+[dependencies]
+thiserror = "1"
+tracing = "0.1.34"
+tracing-subscriber = "0.2"
+ffmpeg-next = { version = "5", default-features = false, features = ["codec", "format", "software-resampling"] }
+blockhash = { version = "0.4.0", optional = true }
+image = { version = "0.24", optional = true }
+chromaprint-rust = "0.1"
+num-traits = "0.2"
+clap = { version = "3", features = ["derive"] }
+bincode = "1.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rayon = { version = "1.5", optional = true }
+infer = { version = "0.8", default-features = false }
+
+[features]
+default = ["rayon", "chromaprint-rust/static"]
+video = ["blockhash", "image"]
+static = ["chromaprint-rust/static", "ffmpeg-next/static"]
+
+[target.'cfg(windows)'.build-dependencies]
+vcpkg = "0.2"
+
+# Info for cargo-vcpkg
+[package.metadata.vcpkg]
+git = "https://github.com/microsoft/vcpkg"
+rev = "cef0b3ec767df6e83806899fe9525f6cf8d7bc91"
+
+[package.metadata.vcpkg.target]
+x86_64-pc-windows-msvc = { triplet = "x64-windows-static-md", dependencies = ["ffmpeg"] }

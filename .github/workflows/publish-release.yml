@@ -88,7 +88,8 @@ jobs:
           !${{ env.VCPKG_ROOT }}/installed
         key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles( 'Cargo.lock' ) }}
     - name: Install dependencies
-      run: cargo vcpkg --verbose build
+      run: cd needle && cargo vcpkg --verbose build
+      shell: bash
     - name: Build release version
       run: cargo build -v --release --features static
     - name: Compress binary (using Powershell)
