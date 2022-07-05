@@ -55,6 +55,14 @@ enum Commands {
             help = "Enable multi-threaded decoding in FFmpeg."
         )]
         threaded_decoding: bool,
+
+        #[clap(
+            long,
+            default_value = "false",
+            action(ArgAction::SetTrue),
+            help = "Re-analyze all videos and ignore any existing hash data on disk."
+        )]
+        force: bool,
     },
     #[clap(
         arg_required_else_help = true,
@@ -302,10 +310,11 @@ fn main() -> needle::Result<()> {
             hash_period,
             hash_duration,
             threaded_decoding,
+            force,
             ..
         } => match mode {
             Mode::Audio => {
-                let analyzer = audio::Analyzer::from_files(&videos, threaded_decoding);
+                let analyzer = audio::Analyzer::from_files(&videos, threaded_decoding, force);
                 analyzer.run(hash_period, hash_duration, true)?;
             }
             #[cfg(feature = "video")]
