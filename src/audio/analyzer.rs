@@ -63,13 +63,13 @@ impl Decoder {
 }
 
 #[derive(Debug)]
-pub struct Analyzer<'a, P: AsRef<Path> + Sync> {
-    paths: Option<&'a [P]>,
+pub struct Analyzer<P: AsRef<Path>> {
+    paths: Vec<P>,
     threaded_decoding: bool,
     force: bool,
 }
 
-impl Default for Analyzer<'_, &Path> {
+impl<P: AsRef<Path> + Sync> Default for Analyzer<P> {
     fn default() -> Self {
         Self {
             paths: Default::default(),
@@ -79,10 +79,10 @@ impl Default for Analyzer<'_, &Path> {
     }
 }
 
-impl<'a, P: AsRef<Path> + 'a + Sync> Analyzer<'a, P> {
-    pub fn from_files(paths: &'a [P], threaded_decoding: bool, force: bool) -> Self {
+impl<P: AsRef<Path>> Analyzer<P> {
+    pub fn from_files(paths: impl Into<Vec<P>>, threaded_decoding: bool, force: bool) -> Self {
         Self {
-            paths: Some(paths),
+            paths: paths.into(),
             threaded_decoding,
             force,
         }
@@ -276,15 +276,16 @@ impl<'a, P: AsRef<Path> + 'a + Sync> Analyzer<'a, P> {
 
         Ok(frame_hashes)
     }
+}
 
+impl<P: AsRef<Path> + Sync> Analyzer<P> {
     pub fn run(&self, hash_period: f32, hash_duration: f32, persist: bool) -> Result<()> {
-        if self.paths.is_none() {
+        if self.paths.len() == 0 {
             return Err(Error::AnalyzerMissingPaths.into());
         }
 
         #[cfg(feature = "rayon")]
         self.paths
-            .unwrap()
             .par_iter()
             .map(|path| {
                 self.run_single(path, hash_period, hash_duration, persist)
@@ -294,7 +295,6 @@ impl<'a, P: AsRef<Path> + 'a + Sync> Analyzer<'a, P> {
 
         #[cfg(not(feature = "rayon"))]
         self.paths
-            .unwrap()
             .iter()
             .map(|path| {
                 self.run_single(path, hash_period, hash_duration, persist)

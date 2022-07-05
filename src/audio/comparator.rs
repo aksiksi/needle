@@ -341,8 +341,8 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
             // Otherwise, compute the hash data now by analyzing the video files.
             tracing::debug!("starting in-place video analysis...");
 
-            let src_analyzer = super::Analyzer::default();
-            let dst_analyzer = super::Analyzer::default();
+            let src_analyzer = super::Analyzer::<&Path>::default();
+            let dst_analyzer = super::Analyzer::<&Path>::default();
             let src_frame_hashes = src_analyzer.run_single(
                 &src_path,
                 super::DEFAULT_HASH_PERIOD,

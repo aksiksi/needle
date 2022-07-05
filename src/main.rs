@@ -314,7 +314,7 @@ fn main() -> needle::Result<()> {
             ..
         } => match mode {
             Mode::Audio => {
-                let analyzer = audio::Analyzer::from_files(&videos, threaded_decoding, force);
+                let analyzer = audio::Analyzer::from_files(videos, threaded_decoding, force);
                 analyzer.run(hash_period, hash_duration, true)?;
             }
             #[cfg(feature = "video")]
