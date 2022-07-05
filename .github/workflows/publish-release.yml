@@ -107,7 +107,10 @@ jobs:
     - name: Build release version
       run: cargo build -v --release --features static
     - name: Compress binary
-      run: cd target/release && zip -9 needle-$GITHUB_REF_NAME-windows-amd64.zip needle
+      # Smart way to avoid installing "zip" in Git bash
+      # -a: auto-compress
+      # Reference: https://stackoverflow.com/a/71023414/845275
+      run: cd target/release && tar -a -c -f needle-$GITHUB_REF_NAME-windows-amd64.zip needle
       shell: bash
     - name: Upload binary to the release
       uses: softprops/action-gh-release@v1
