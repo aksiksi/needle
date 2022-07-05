@@ -3,6 +3,13 @@ on:
   push:
     branches:
       - main
+
+env:
+  # Use a personal access token to be able to trigger
+  # the "publish-release" workflow when when a new tag is created.
+  # See: https://docs.github.com/en/actions/using-workflows/triggering-a-workflow#triggering-a-workflow-from-a-workflow
+  GITHUB_TOKEN: ${{ secrets.ACTIONS_TOKEN }}
+
 jobs:
   release-please:
     runs-on: ubuntu-latest
