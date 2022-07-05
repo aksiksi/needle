@@ -10,6 +10,10 @@ repository = "https://github.com/aksiksi/needle"
 license = "MIT"
 keywords = ["multimedia", "ffmpeg"]
 categories = ["command-line-utilities", "multimedia", "multimedia::audio"]
+exclude = [
+    # Test resources
+    "resources/*",
+]
 
 [lib]
 name = "needle"
