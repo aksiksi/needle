@@ -38,7 +38,7 @@ jobs:
         cache-name: cache-homebrew
       with:
         path: |
-          /usr/local
+          /usr/local/Cellar
           /opt/homebrew
         key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles( 'Cargo.lock' ) }}
     - name: Install dependencies
@@ -49,7 +49,6 @@ jobs:
       run: cargo test -v
   windows:
     runs-on: windows-latest
-    if: ${{ false }} # disable
     env:
       VCPKG_ROOT: ${{ github.workspace }}/vcpkg
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-bincache
