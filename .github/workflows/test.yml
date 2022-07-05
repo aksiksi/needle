@@ -23,9 +23,7 @@ jobs:
           libavutil-dev \
           libavformat-dev \
           libswresample-dev \
-          libavcodec-dev \
-          libavfilter-dev \
-          libavdevice-dev
+          libavcodec-dev
     - name: Build debug version
       run: cargo build -v
     - name: Run tests

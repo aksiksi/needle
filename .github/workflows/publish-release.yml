@@ -21,9 +21,7 @@ jobs:
           libavutil-dev \
           libavformat-dev \
           libswresample-dev \
-          libavcodec-dev \
-          libavfilter-dev \
-          libavdevice-dev
+          libavcodec-dev
     - name: Build
       run: cargo build -v
     - name: Run tests
@@ -50,9 +48,7 @@ jobs:
           libavutil-dev \
           libavformat-dev \
           libswresample-dev \
-          libavcodec-dev \
-          libavfilter-dev \
-          libavdevice-dev
+          libavcodec-dev
     - name: Build release version
       run: cargo build -v --release
     - name: Compress binary
@@ -86,7 +82,6 @@ jobs:
     env:
       VCPKG_ROOT: ${{ github.workspace }}/vcpkg
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-bincache
-      CACHE_ON_FAILURE: "true"
     steps:
     - uses: actions/checkout@v3
     - uses: Swatinem/rust-cache@v1
@@ -110,7 +105,7 @@ jobs:
     - name: Install dependencies
       run: cargo vcpkg --verbose build
     - name: Build release version
-      run: cargo build -v --release
+      run: cargo build -v --release --features static
     - name: Compress binary
       run: cd target/release && zip -9 needle-$GITHUB_REF_NAME-windows-amd64.zip needle
       shell: bash

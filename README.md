@@ -120,9 +120,7 @@ sudo apt install \
     libavutil-dev \
     libavformat-dev \
     libswresample-dev \
-    libavcodec-dev \
-    libavfilter-dev \
-    libavdevice-dev
+    libavcodec-dev
 ```
 
 2. Build:
@@ -144,9 +142,7 @@ sudo apt install \
     libavutil-dev \
     libavformat-dev \
     libswresample-dev \
-    libavcodec-dev \
-    libavfilter-dev \
-    libavdevice-dev
+    libavcodec-dev
 ```
 
 Build:
@@ -192,21 +188,35 @@ cargo vcpkg build
 cargo build --release --features static
 ```
 
-To dynamically link:
+#### Dynamic
 
 1. Set the following environment variables:
 
-```powershell
-# Powershell
-$env:VCPKGRS_DYNAMIC='1'
-$env:VCPKGRS_TRIPLET='x64-windows'
-```
+    a. To dynamically link **both** FFmpeg and `chromaprint`:
 
-```bash
-# Git bash
-export VCPKGRS_DYNAMIC=1
-export VCPKGRS_TRIPLET='x64-windows'
-```
+    ```powershell
+    # Powershell
+    $env:VCPKGRS_DYNAMIC='1'
+    $env:VCPKGRS_TRIPLET='x64-windows'
+    ```
+
+    ```bash
+    # Git bash
+    export VCPKGRS_DYNAMIC=1
+    export VCPKGRS_TRIPLET='x64-windows'
+    ```
+
+    b. Just `chromaprint`:
+
+    ```powershell
+    # Powershell
+    $env:CHROMAPRINT_SYS_DYNAMIC='1'
+    ```
+
+    ```bash
+    # Git bash
+    export CHROMAPRINT_SYS_DYNAMIC=1
+    ```
 
 2. Build deps:
 
