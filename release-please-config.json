@@ -1,0 +1,9 @@
+{
+  "packages": {
+    "needle": {}
+    "needle-capi": {}
+  },
+  "release-type": "rust",
+  "plugins": ["cargo-workspace"]
+}
+

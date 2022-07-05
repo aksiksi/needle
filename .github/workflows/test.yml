@@ -4,11 +4,13 @@ on:
   push:
     paths-ignore:
       - '*.md'
+      - '*release-please.yml'
     branches:
       - main
   pull_request:
     paths-ignore:
       - '*.md'
+      - '*release-please.yml'
 
 env:
   CARGO_TERM_COLOR: always
