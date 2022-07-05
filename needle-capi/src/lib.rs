@@ -4,13 +4,16 @@ use std::{ffi::CStr, path::PathBuf};
 use needle::audio;
 
 #[repr(C)]
+#[derive(Debug, PartialEq)]
 pub enum Error {
     None = 0,
     InvalidUtf8String,
+    NullArgument,
+    ComparatorNumPaths,
 }
 
-// TODO(aksiksi): Make this a macro
-const fn _needle_error_to_str(error: Error) -> *const libc::c_char {
+#[no_mangle]
+pub extern "C" fn needle_error_to_str(error: Error) -> *const libc::c_char {
     match error {
         Error::None => unsafe {
             CStr::from_bytes_with_nul_unchecked("No error\0".as_bytes()).as_ptr()
@@ -18,12 +21,14 @@ const fn _needle_error_to_str(error: Error) -> *const libc::c_char {
         Error::InvalidUtf8String => unsafe {
             CStr::from_bytes_with_nul_unchecked("Invalid UTF-8 string\0".as_bytes()).as_ptr()
         },
+        Error::NullArgument => unsafe {
+            CStr::from_bytes_with_nul_unchecked("Input argument is null\0".as_bytes()).as_ptr()
+        },
+        Error::ComparatorNumPaths => unsafe {
+            CStr::from_bytes_with_nul_unchecked("Comparator requires at least 2 paths\0".as_bytes())
+                .as_ptr()
+        },
     }
-}
-
-#[no_mangle]
-pub extern "C" fn needle_error_to_str(error: Error) -> *const libc::c_char {
-    _needle_error_to_str(error)
 }
 
 unsafe fn get_paths_from_raw(
@@ -43,6 +48,7 @@ unsafe fn get_paths_from_raw(
     Some(paths)
 }
 
+#[derive(Debug, Default)]
 pub struct Analyzer(audio::Analyzer<PathBuf>);
 
 #[no_mangle]
@@ -53,6 +59,10 @@ pub unsafe extern "C" fn needle_audio_analyzer_new(
     force: bool,
     output: *mut *const Analyzer,
 ) -> Error {
+    if paths.is_null() || output.is_null() {
+        return Error::NullArgument;
+    }
+
     let paths = match get_paths_from_raw(paths, num_paths) {
         Some(v) => v,
         None => return Error::InvalidUtf8String,
@@ -66,15 +76,25 @@ pub unsafe extern "C" fn needle_audio_analyzer_new(
 }
 
 #[no_mangle]
+pub extern "C" fn needle_audio_analyzer_free(analyzer: *const Analyzer) {
+    if analyzer == std::ptr::null_mut() {
+        return;
+    }
+    let analyzer = unsafe { Box::from_raw(analyzer as *mut Analyzer) };
+    drop(analyzer);
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn needle_audio_analyzer_run(
-    analyzer: *mut Analyzer,
-    hash_period: f32,
-    hash_duration: f32,
-    persist: bool,
+    _analyzer: *mut Analyzer,
+    _hash_period: f32,
+    _hash_duration: f32,
+    _persist: bool,
 ) -> Error {
     todo!()
 }
 
+#[derive(Debug, Default)]
 pub struct Comparator(audio::Comparator<PathBuf>);
 
 #[no_mangle]
@@ -89,6 +109,13 @@ pub unsafe extern "C" fn needle_audio_comparator_new(
     time_padding: f32,
     output: *mut *const Comparator,
 ) -> Error {
+    if paths.is_null() || output.is_null() {
+        return Error::NullArgument;
+    }
+    if num_paths < 2 {
+        return Error::ComparatorNumPaths;
+    }
+
     let paths = match get_paths_from_raw(paths, num_paths) {
         Some(v) => v,
         None => return Error::InvalidUtf8String,
@@ -113,11 +140,64 @@ pub unsafe extern "C" fn needle_audio_comparator_new(
 }
 
 #[no_mangle]
+pub extern "C" fn needle_audio_comparator_free(comparator: *const Comparator) {
+    if comparator == std::ptr::null_mut() {
+        return;
+    }
+    let comparator = unsafe { Box::from_raw(comparator as *mut Comparator) };
+    drop(comparator);
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn needle_audio_comparator_run(
-    comparator: *mut Comparator,
-    analyze: bool,
-    display: bool,
-    use_skip_files: bool,
+    _comparator: *mut Comparator,
+    _analyze: bool,
+    _display: bool,
+    _use_skip_files: bool,
 ) -> Error {
     todo!()
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_analyzer() {
+        let paths = ["/tmp/abcd.mkv".to_string()].map(|s| std::ffi::CString::new(s).unwrap());
+        let path_ptrs: Vec<*const libc::c_char> = paths.iter().map(|s| s.as_ptr()).collect();
+        let num_paths = paths.len();
+        let mut analyzer = std::ptr::null();
+        let error = unsafe {
+            needle_audio_analyzer_new(path_ptrs.as_ptr(), num_paths, false, false, &mut analyzer)
+        };
+        assert_eq!(error, Error::None);
+        assert_ne!(analyzer, std::ptr::null());
+        needle_audio_analyzer_free(analyzer);
+    }
+
+    #[test]
+    fn test_comparator() {
+        let paths = ["/tmp/abcd.mkv".to_string(), "/tmp/efgh.mp4".to_string()]
+            .map(|s| std::ffi::CString::new(s).unwrap());
+        let path_ptrs: Vec<*const libc::c_char> = paths.iter().map(|s| s.as_ptr()).collect();
+        let num_paths = paths.len();
+        let mut comparator = std::ptr::null();
+        let error = unsafe {
+            needle_audio_comparator_new(
+                path_ptrs.as_ptr(),
+                num_paths,
+                10,
+                0.33,
+                0.2,
+                10.0,
+                10.0,
+                0.0,
+                &mut comparator,
+            )
+        };
+        assert_eq!(error, Error::None);
+        assert_ne!(comparator, std::ptr::null());
+        needle_audio_comparator_free(comparator);
+    }
 }

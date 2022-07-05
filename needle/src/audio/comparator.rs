@@ -51,6 +51,7 @@ struct SearchResult {
 }
 
 /// Compares two audio streams.
+#[derive(Debug, Default)]
 pub struct Comparator<P: AsRef<Path>> {
     videos: Vec<P>,
     hash_match_threshold: u32,
