@@ -108,7 +108,7 @@ jobs:
           !${{ env.VCPKG_ROOT }}/installed
         key: ${{ hashFiles( 'Cargo.lock' ) }}
     - name: Install dependencies
-      run: cargo vcpkg --verbose build --target x64-windows-static-md
+      run: cargo vcpkg --verbose build
     - name: Build release version
       run: cargo build -v --release
     - name: Compress binary
