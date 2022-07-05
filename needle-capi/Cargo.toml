@@ -1,0 +1,15 @@
+[package]
+name = "needle-rs-capi"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "needle"
+crate-type = ["cdylib"]
+
+[dependencies]
+needle-rs = { version = "0.1", path = "../needle" }
+libc = "0.2"
+
+[build-dependencies]
+cbindgen = "0.20.0"
