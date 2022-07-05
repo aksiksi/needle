@@ -35,22 +35,8 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - uses: Swatinem/rust-cache@v1
-    - name: Setup Homebrew cache
-      uses: actions/cache@v2
-      id: cache
-      env:
-        cache-name: cache-homebrew
-      with:
-        path: |
-          /usr/local/Cellar
-          /opt/homebrew
-        key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles( 'Cargo.lock' ) }}
-    - name: Re-link all Homebrew libraries
-      run: brew list -1 | while read line; do brew link $line; done
-      if: steps.cache.outputs.cache-hit == 'true'
     - name: Install dependencies
       run: brew install ffmpeg
-      if: steps.cache.outputs.cache-hit != 'true'
     - name: Build debug version
       run: cargo build -v
     - name: Run tests
