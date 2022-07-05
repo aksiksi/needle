@@ -13,16 +13,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Error, Result};
 
-// NOTE: Modifying this struct is a breaking change.
-#[derive(Deserialize, Serialize)]
-pub(crate) struct FrameHashes {
-    pub(crate) hash_period: f32,
-    pub(crate) hash_duration: f32,
-    pub(crate) data: Vec<(u32, Duration)>,
+#[derive(Debug, Deserialize, Serialize)]
+pub struct FrameHashes {
+    pub hash_period: f32,
+    pub hash_duration: f32,
+    pub data: Vec<(u32, Duration)>,
     /// Size of the video, in bytes. This is used as a primitive hash
     /// to detect if the video file has changed since this data was
     /// generated.
-    pub(crate) video_size: usize,
+    pub video_size: usize,
 }
 
 /// Wraps the `FFmpeg` audio decoder.
@@ -279,13 +278,13 @@ impl<P: AsRef<Path>> Analyzer<P> {
 }
 
 impl<P: AsRef<Path> + Sync> Analyzer<P> {
-    pub fn run(&self, hash_period: f32, hash_duration: f32, persist: bool) -> Result<()> {
+    pub fn run(&self, hash_period: f32, hash_duration: f32, persist: bool) -> Result<Vec<FrameHashes>> {
         if self.paths.len() == 0 {
             return Err(Error::AnalyzerMissingPaths.into());
         }
 
         #[cfg(feature = "rayon")]
-        self.paths
+        let data = self.paths
             .par_iter()
             .map(|path| {
                 self.run_single(path, hash_period, hash_duration, persist)
@@ -294,7 +293,7 @@ impl<P: AsRef<Path> + Sync> Analyzer<P> {
             .collect::<Vec<_>>();
 
         #[cfg(not(feature = "rayon"))]
-        self.paths
+        let data = self.paths
             .iter()
             .map(|path| {
                 self.run_single(path, hash_period, hash_duration, persist)
@@ -302,6 +301,29 @@ impl<P: AsRef<Path> + Sync> Analyzer<P> {
             })
             .collect::<Vec<_>>();
 
-        Ok(())
+        Ok(data)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::path::PathBuf;
+
+    use super::*;
+
+    fn get_sample_paths() -> Vec<PathBuf> {
+        let resources = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources");
+        vec![
+            resources.join("sample-5s.mp4"),
+            resources.join("sample-shifted-4s.mp4"),
+        ]
+    }
+
+    #[test]
+    fn test_analyzer() {
+        let paths = get_sample_paths();
+        let analyzer = Analyzer::from_files(paths.clone(), false, false);
+        let data = analyzer.run(0.3, 3.0, false).unwrap();
+        insta::assert_debug_snapshot!(data);
     }
 }

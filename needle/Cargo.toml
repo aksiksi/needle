@@ -39,6 +39,9 @@ serde_json = "1"
 rayon = { version = "1.5", optional = true }
 infer = { version = "0.8", default-features = false }
 
+[dev-dependencies]
+insta = "1"
+
 [features]
 default = ["rayon", "chromaprint-rust/static"]
 video = ["blockhash", "image"]
