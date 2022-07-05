@@ -15,7 +15,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-    # Cache Rust dependencies.
     - uses: Swatinem/rust-cache@v1
     - name: Install dependencies
       run: |
@@ -28,3 +27,55 @@ jobs:
       run: cargo build -v
     - name: Run tests
       run: cargo test -v
+  macos:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: Swatinem/rust-cache@v1
+    - name: Setup Homebrew cache
+      uses: actions/cache@v2
+      env:
+        cache-name: cache-homebrew
+      with:
+        path: |
+          /usr/local
+          /opt/homebrew
+        key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles( 'Cargo.lock' ) }}
+    - name: Install dependencies
+      run: brew install ffmpeg
+    - name: Build debug version
+      run: cargo build -v
+    - name: Run tests
+      run: cargo test -v
+  windows:
+    runs-on: windows-latest
+    if: ${{ false }} # disable
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-bincache
+    steps:
+    - uses: actions/checkout@v3
+    - uses: Swatinem/rust-cache@v1
+    - name: "Create directory '${{ env.VCPKG_DEFAULT_BINARY_CACHE }}'"
+      run: mkdir -p $VCPKG_DEFAULT_BINARY_CACHE
+      shell: bash
+    - name: Install cargo-vcpkg
+      run: cargo install cargo-vcpkg
+    - name: Restore vcpkg and its artifacts.
+      uses: actions/cache@v2
+      env:
+        cache-name: cache-vcpkg
+      with:
+        path: |
+          ${{ env.VCPKG_ROOT }}
+          !${{ env.VCPKG_ROOT }}/buildtrees
+          !${{ env.VCPKG_ROOT }}/packages
+          !${{ env.VCPKG_ROOT }}/downloads
+          !${{ env.VCPKG_ROOT }}/installed
+        key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles( 'Cargo.lock' ) }}
+    - name: Install dependencies
+      run: cargo vcpkg --verbose build
+    - name: Build debug version
+      run: cargo build -v --features static
+    - name: Run tests
+      run: cargo test -v --features static

@@ -61,7 +61,6 @@ jobs:
   macos:
     runs-on: macos-latest
     needs: create-release
-    if: ${{ false }} # disable for now
     steps:
     - uses: actions/checkout@v3
     - uses: Swatinem/rust-cache@v1
@@ -94,6 +93,8 @@ jobs:
     # Taken from here: https://github.com/lukka/CppCMakeVcpkgTemplate/blob/main/.github/workflows/hosted-pure-workflow.yml
     - name: Restore vcpkg and its artifacts.
       uses: actions/cache@v2
+      env:
+        cache-name: cache-vcpkg
       with:
         path: |
           ${{ env.VCPKG_ROOT }}
@@ -101,31 +102,27 @@ jobs:
           !${{ env.VCPKG_ROOT }}/packages
           !${{ env.VCPKG_ROOT }}/downloads
           !${{ env.VCPKG_ROOT }}/installed
-        key: ${{ hashFiles( 'Cargo.lock' ) }}
+        key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles( 'Cargo.lock' ) }}
     - name: Install dependencies
       run: cargo vcpkg --verbose build
     - name: Build release version
       run: cargo build -v --release --features static
-    - name: Compress binary
-      # Smart way to avoid installing "zip" in Git bash
-      # -a: auto-compress
-      # Reference: https://stackoverflow.com/a/71023414/845275
-      run: cd target/release && tar -a -c -f needle-$GITHUB_REF_NAME-windows-amd64.zip needle
-      shell: bash
+    - name: Compress binary (using Powershell)
+      run: Compress-Archive -Path "$env:GITHUB_WORKSPACE\target\release\needle.exe" -DestinationPath "$env:GITHUB_WORKSPACE\needle-$env:GITHUB_REF_NAME-windows-amd64.zip"
     - name: Upload binary to the release
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ github.ref_name }}
-        files: target/release/*.zip
-  publish-to-crates-io:
-    runs-on: ubuntu-latest
-    needs:
-      - linux
-      - windows
-    steps:
-    - uses: actions/checkout@v3
-    - uses: Swatinem/rust-cache@v1
-    - name: Publish version to crates.io
-      run: cargo publish
-      env:
-        CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        files: "*.zip"
+  #publish-to-crates-io:
+  #  runs-on: ubuntu-latest
+  #  needs:
+  #    - linux
+  #    - windows
+  #  steps:
+  #  - uses: actions/checkout@v3
+  #  - uses: Swatinem/rust-cache@v1
+  #  - name: Publish version to crates.io
+  #    run: cargo publish
+  #    env:
+  #      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
