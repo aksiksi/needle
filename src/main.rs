@@ -351,7 +351,7 @@ fn main() -> needle::Result<()> {
             let min_ending_duration = Duration::from_secs(min_ending_duration.into());
             let time_padding = Duration::from_secs_f32(time_padding);
             let comparator = audio::Comparator::from_files(
-                &videos,
+                videos,
                 hash_match_threshold,
                 opening_search_percentage,
                 ending_search_percentage,

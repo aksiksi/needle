@@ -51,8 +51,8 @@ struct SearchResult {
 }
 
 /// Compares two audio streams.
-pub struct Comparator<'a, P: AsRef<Path>> {
-    videos: &'a [P],
+pub struct Comparator<P: AsRef<Path>> {
+    videos: Vec<P>,
     hash_match_threshold: u32,
     opening_search_percentage: f32,
     ending_search_percentage: f32,
@@ -61,9 +61,9 @@ pub struct Comparator<'a, P: AsRef<Path>> {
     time_padding: Duration,
 }
 
-impl<'a, P: AsRef<Path>> Comparator<'a, P> {
+impl<P: AsRef<Path>> Comparator<P> {
     pub fn from_files(
-        videos: &'a [P],
+        videos: impl Into<Vec<P>>,
         hash_match_threshold: u16,
         opening_search_percentage: f32,
         ending_search_percentage: f32,
@@ -72,7 +72,7 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
         time_padding: Duration,
     ) -> Self {
         Self {
-            videos,
+            videos: videos.into(),
             hash_match_threshold: hash_match_threshold as u32,
             opening_search_percentage,
             ending_search_percentage,
@@ -435,7 +435,7 @@ impl<'a, P: AsRef<Path>> Comparator<'a, P> {
     }
 }
 
-impl<'a, T: AsRef<Path> + std::marker::Sync> Comparator<'a, T> {
+impl<T: AsRef<Path> + Sync> Comparator<T> {
     pub fn run(&self, analyze: bool, display: bool, use_skip_files: bool) -> Result<()> {
         // Build a list of video pairs for actual search. Pairs should only appear once.
         // Given N videos, this will result in: (N * (N-1)) / 2 pairs
