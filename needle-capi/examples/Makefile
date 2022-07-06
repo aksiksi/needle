@@ -1,5 +1,5 @@
 INCFLAGS = -I..
-LDFLAGS = -L../../target/debug
+LDFLAGS = -L../target/debug
 LIBS = -lneedle_capi
 
 .PHONY: all

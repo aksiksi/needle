@@ -4,13 +4,11 @@ on:
   push:
     paths-ignore:
       - '*.md'
-      - '*release-please.yml'
     branches:
       - main
   pull_request:
     paths-ignore:
       - '*.md'
-      - '*release-please.yml'
 
 env:
   CARGO_TERM_COLOR: always
@@ -28,14 +26,12 @@ jobs:
           libavformat-dev \
           libswresample-dev \
           libavcodec-dev
-    - name: Build debug version
-      run: cargo build -v
-    - name: Run tests
-      run: cargo test -v
+    - name: Test needle
+      run: cd needle && cargo test -v
+    - name: Test needle-capi
+      run: cd needle-capi && cargo test -v
     - name: Build needle-capi examples
-      run: |
-        cd needle-capi/examples
-        make all
+      run: cd needle-capi/examples && make all
   macos:
     runs-on: macos-latest
     steps:
@@ -43,14 +39,12 @@ jobs:
     - uses: Swatinem/rust-cache@v1
     - name: Install dependencies
       run: brew install ffmpeg
-    - name: Build debug version
-      run: cargo build -v
-    - name: Run tests
-      run: cargo test -v
+    - name: Test needle
+      run: cd needle && cargo test -v
+    - name: Test needle-capi
+      run: cd needle-capi && cargo test -v
     - name: Build needle-capi examples
-      run: |
-        cd needle-capi/examples
-        make all
+      run: cd needle-capi/examples && make all
   windows:
     runs-on: windows-latest
     env:
@@ -75,11 +69,9 @@ jobs:
           !${{ env.VCPKG_ROOT }}/packages
           !${{ env.VCPKG_ROOT }}/downloads
           !${{ env.VCPKG_ROOT }}/installed
-        key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles( 'Cargo.lock' ) }}
+        key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles( 'needle/Cargo.lock' ) }}
     - name: Install dependencies
       run: cd needle && cargo vcpkg --verbose build
       shell: bash
-    - name: Build debug version
-      run: cargo build -v --features static
-    - name: Run tests
-      run: cargo test -v --features static
+    - name: Test needle
+      run: cd needle && cargo test -v --features static
