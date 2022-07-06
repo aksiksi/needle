@@ -2,8 +2,8 @@
 
 [![Crates.io](https://img.shields.io/crates/v/needle-rs)](https://crates.io/crates/needle-rs)
 [![docs.rs](https://img.shields.io/docsrs/needle-rs?label=docs.rs)](https://docs.rs/needle-rs/)
-[![Test](https://github.com/aksiksi/needle/actions/workflows/test.yml/badge.svg)](https://github.com/aksiksi/needle/actions/workflows/test.yml)
-[![Release](https://github.com/aksiksi/needle/actions/workflows/publish-release.yml/badge.svg)](https://github.com/aksiksi/needle/actions/workflows/publish-release.yml)
+[![test](https://github.com/aksiksi/needle/actions/workflows/test.yml/badge.svg)](https://github.com/aksiksi/needle/actions/workflows/test.yml)
+[![release-needle](https://github.com/aksiksi/needle/actions/workflows/release-needle.yml/badge.svg)](https://github.com/aksiksi/needle/actions/workflows/publish-release.yml)
 
 A tool that finds a needle (opening/intro and ending/credits) in a haystack (TV or anime episode).
 
