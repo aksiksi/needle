@@ -178,11 +178,12 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "chromaprint-rust"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1cc4d6d4e157ffce0983b19e3a70498e57894808e1309a0a9e8718769e10c01"
+checksum = "e816c052d84585ec8df13b66221cc9c7c614e053b09cb3af538f98f1d0dd8d3a"
 dependencies = [
  "chromaprint-sys-next",
+ "num-traits",
  "thiserror",
 ]
 
@@ -760,7 +761,6 @@ dependencies = [
  "image",
  "infer",
  "insta",
- "num-traits",
  "rayon",
  "serde",
  "serde_json",

@@ -200,7 +200,7 @@ impl<P: AsRef<Path>> Analyzer<P> {
                     // Feed the i16 samples to Chromaprint. Since we are using the default sampling rate,
                     // Chromaprint will _not_ do any resampling internally.
                     for (raw_fingerprint, ts) in fingerprinter.feed(samples).unwrap() {
-                        let hash = crate::simhash::simhash32(raw_fingerprint.get());
+                        let hash = chromaprint::simhash::simhash32(raw_fingerprint.get());
                         hashes.push((hash, ts));
                     }
 

@@ -2,7 +2,6 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 pub mod audio;
-pub mod simhash;
 pub mod util;
 #[cfg(feature = "video")]
 pub mod video;

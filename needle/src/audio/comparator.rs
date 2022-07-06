@@ -5,6 +5,7 @@ use std::fmt::Display;
 use std::path::Path;
 use std::time::Duration;
 
+use chromaprint_rust as chromaprint;
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
 
@@ -86,7 +87,7 @@ impl<P: AsRef<Path>> Comparator<P> {
     #[inline]
     fn compute_hash_for_match(hashes: &[(u32, Duration)], (start, end): (usize, usize)) -> u32 {
         let hashes: Vec<u32> = hashes.iter().map(|t| t.0).collect();
-        crate::simhash::simhash32(&hashes[start..end + 1])
+        chromaprint::simhash::simhash32(&hashes[start..end + 1])
     }
 
     /// Runs a LCS (longest common substring) search between the two sets of hashes. This runs in
