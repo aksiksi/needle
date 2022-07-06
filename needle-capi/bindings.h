@@ -7,7 +7,7 @@
 #include <stdlib.h>
 
 typedef enum NeedleError {
-  NeedleError_None = 0,
+  NeedleError_Ok = 0,
   NeedleError_InvalidUtf8String,
   NeedleError_NullArgument,
   NeedleError_FrameHashDataNotFound,
@@ -130,9 +130,9 @@ enum NeedleError needle_audio_comparator_new(const char *const *paths,
 
 void needle_audio_comparator_free(const struct NeedleAudioComparator *comparator);
 
-enum NeedleError needle_audio_comparator_run(struct NeedleAudioComparator *_comparator,
-                                             bool _analyze,
-                                             bool _display,
-                                             bool _use_skip_files);
+enum NeedleError needle_audio_comparator_run(struct NeedleAudioComparator *comparator,
+                                             bool analyze,
+                                             bool display,
+                                             bool use_skip_files);
 
 #endif /* NEEDLE_H */
