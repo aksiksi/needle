@@ -7,15 +7,6 @@ use std::time::Duration;
 
 use crate::{Error, Result};
 
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    #[error("invalid timestamp for seek: requested={requested:?} duration={duration:?}")]
-    InvalidSeekTimestamp {
-        requested: Duration,
-        duration: Duration,
-    },
-}
-
 /// Wraps the `FFmpeg` video decoder.
 struct VideoDecoder {
     decoder: ffmpeg_next::codec::decoder::Video,
