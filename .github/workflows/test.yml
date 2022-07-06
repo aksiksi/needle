@@ -32,6 +32,10 @@ jobs:
       run: cargo build -v
     - name: Run tests
       run: cargo test -v
+    - name: Build needle-capi examples
+      run: |
+        cd needle-capi/examples
+        make all
   macos:
     runs-on: macos-latest
     steps:
@@ -43,6 +47,10 @@ jobs:
       run: cargo build -v
     - name: Run tests
       run: cargo test -v
+    - name: Build needle-capi examples
+      run: |
+        cd needle-capi/examples
+        make all
   windows:
     runs-on: windows-latest
     env:
