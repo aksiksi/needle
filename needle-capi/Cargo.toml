@@ -2,6 +2,17 @@
 name = "needle-rs-capi"
 version = "0.1.0"
 edition = "2021"
+description = "C library that wraps needle-rs"
+authors = ["Assil Ksiksi <assil@ksiksi.net>"]
+readme = "README.md"
+homepage = "https://github.com/aksiksi/needle"
+repository = "https://github.com/aksiksi/needle"
+license = "MIT"
+keywords = ["multimedia", "ffmpeg"]
+categories = ["command-line-utilities", "multimedia", "multimedia::audio"]
+exclude = [
+    "examples/*",
+]
 
 [lib]
 name = "needle_capi"
