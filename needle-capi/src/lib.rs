@@ -1,3 +1,57 @@
+//! A C library that wraps [needle].
+//!
+//! # Example
+//!
+//! ```c
+//! #include <stdio.h>
+//! #include <needle.h>
+//!
+//! void main() {
+//!     NeedleError err;
+//!     NeedleAudioAnalyzer *analyzer = NULL;
+//!     NeedleAudioComparator *comparator = NULL;
+//!
+//!     char *video_paths[] = {
+//!         "/tmp/abcd.mkv",
+//!         "/tmp/efgh.mp4",
+//!     };
+//!     const int NUM_PATHS = 2;
+//!
+//!     // Setup the analyzer and comparator.
+//!     err = needle_audio_analyzer_new(paths, NUM_PATHS, false, false, &analyzer);
+//!     if (err != 0) {
+//!         printf("Failed to create analyzer: %s\n", needle_error_to_str(err));
+//!         goto done;
+//!     }
+//!     err = needle_audio_comparator_new(paths, NUM_PATHS,
+//!                                       10,
+//!                                       0.33,
+//!                                       0.25,
+//!                                       20.0,
+//!                                       10.0,
+//!                                       0.0,
+//!                                       &comparator);
+//!     if (err != 0) {
+//!         printf("Failed to create comparator: %s\n", needle_error_to_str(err));
+//!         goto done;
+//!     }
+//!
+//!     // Run the analyzer.
+//!     err = needle_audio_analyzer_run(analyzer, 0.3, 3.0, true);
+//!     if (err != 0) {
+//!         printf("Failed to run analyzer: %s\n", needle_error_to_str(err));
+//!         goto done;
+//!     }
+//!
+//!     done:
+//!     if (analyzer != NULL) {
+//!         needle_audio_analyzer_free(analyzer);
+//!     }
+//!     if (comparator != NULL) {
+//!         needle_audio_comparator_free(comparator);
+//!     }
+//! }
+//! ```
 use std::ffi::CStr;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -10,7 +64,26 @@ pub enum NeedleError {
     None = 0,
     InvalidUtf8String,
     NullArgument,
+    FrameHashDataNotFound,
+    InvalidFrameHashData,
     ComparatorMinimumPaths,
+    AnalyzerInvalidHashPeriod,
+    AnalyzerInvalidHashDuration,
+    IOError,
+    Unknown,
+}
+
+impl From<needle::Error> for NeedleError {
+    fn from(err: needle::Error) -> Self {
+        use NeedleError::*;
+        match err {
+            needle::Error::FrameHashDataNotFound(_) => FrameHashDataNotFound,
+            needle::Error::AnalyzerMissingPaths => Unknown,
+            needle::Error::BincodeError(_) => InvalidFrameHashData,
+            needle::Error::IOError(_) => IOError,
+            _ => Unknown,
+        }
+    }
 }
 
 /// Returns the string representation of the given [NeedleError].
@@ -26,12 +99,48 @@ pub extern "C" fn needle_error_to_str(error: NeedleError) -> *const libc::c_char
         NeedleError::NullArgument => unsafe {
             CStr::from_bytes_with_nul_unchecked("Input argument is null\0".as_bytes()).as_ptr()
         },
+        NeedleError::FrameHashDataNotFound => unsafe {
+            CStr::from_bytes_with_nul_unchecked(
+                "Frame hash data not found on disk\0".as_bytes(),
+            )
+            .as_ptr()
+        }
+        NeedleError::InvalidFrameHashData => unsafe {
+            CStr::from_bytes_with_nul_unchecked(
+                "Invalid frame hash data read from disk\0".as_bytes(),
+            )
+            .as_ptr()
+        }
         NeedleError::ComparatorMinimumPaths => unsafe {
             CStr::from_bytes_with_nul_unchecked(
                 "Comparator requires at least 2 video paths\0".as_bytes(),
             )
             .as_ptr()
         },
+        NeedleError::AnalyzerInvalidHashPeriod => unsafe {
+            CStr::from_bytes_with_nul_unchecked(
+                "Analyzer hash period must be greater than 0\0".as_bytes(),
+            )
+            .as_ptr()
+        }
+        NeedleError::AnalyzerInvalidHashDuration => unsafe {
+            CStr::from_bytes_with_nul_unchecked(
+                "Analyzer hash duration must be greater than 3 seconds\0".as_bytes(),
+            )
+            .as_ptr()
+        }
+        NeedleError::IOError => unsafe {
+            CStr::from_bytes_with_nul_unchecked(
+                "I/O error\0".as_bytes(),
+            )
+            .as_ptr()
+        }
+        NeedleError::Unknown => unsafe {
+            CStr::from_bytes_with_nul_unchecked(
+                "Unknown error occurred; please re-run with logging enabled\0".as_bytes(),
+            )
+            .as_ptr()
+        }
     }
 }
 
@@ -61,33 +170,38 @@ unsafe fn get_paths_from_raw(
 /// #include <needle.h>
 ///
 /// NeedleError err;
-/// NeedleAnalyzer *analyzer = NULL;
+/// NeedleAudioAnalyzer *analyzer = NULL;
 ///
-/// err = needle_audio_analyzer_new(..., &analyzer);
+/// char *video_paths[] = {
+///     "/tmp/abcd.mkv",
+///     "/tmp/efgh.mp4",
+/// };
+/// const int NUM_PATHS = 2;
+///
+/// err = needle_audio_analyzer_new(paths, NUM_PATHS, false, false, &analyzer);
 /// if (err != 0) {
 ///     printf("Failed to create analyzer: %s\n", needle_error_to_str(err));
 ///     return;
 /// }
 ///
-/// err = needle_audio_analyzer_run(analyzer, ...);
+/// err = needle_audio_analyzer_run(analyzer, 0.3, 3.0, true);
 /// if (err != 0) {
 ///     printf("Failed to run analyzer: %s\n", needle_error_to_str(err));
-///     return;
 /// }
 ///
 /// needle_audio_analyzer_free(analyzer);
 /// ```
 #[derive(Debug, Default)]
-pub struct NeedleAnalyzer(audio::Analyzer<PathBuf>);
+pub struct NeedleAudioAnalyzer(audio::Analyzer<PathBuf>);
 
-/// Constructs a new [NeedleAnalyzer].
+/// Constructs a new [NeedleAudioAnalyzer].
 #[no_mangle]
 pub unsafe extern "C" fn needle_audio_analyzer_new(
     paths: *const *const libc::c_char,
     num_paths: libc::size_t,
     threaded_decoding: bool,
     force: bool,
-    output: *mut *const NeedleAnalyzer,
+    output: *mut *const NeedleAudioAnalyzer,
 ) -> NeedleError {
     if paths.is_null() || output.is_null() {
         return NeedleError::NullArgument;
@@ -100,28 +214,43 @@ pub unsafe extern "C" fn needle_audio_analyzer_new(
 
     let analyzer = audio::Analyzer::from_files(paths, threaded_decoding, force);
 
-    *output = Box::into_raw(Box::new(NeedleAnalyzer(analyzer)));
+    *output = Box::into_raw(Box::new(NeedleAudioAnalyzer(analyzer)));
 
     NeedleError::None
 }
 
 #[no_mangle]
-pub extern "C" fn needle_audio_analyzer_free(analyzer: *const NeedleAnalyzer) {
+pub extern "C" fn needle_audio_analyzer_free(analyzer: *const NeedleAudioAnalyzer) {
     if analyzer == std::ptr::null_mut() {
         return;
     }
-    let analyzer = unsafe { Box::from_raw(analyzer as *mut NeedleAnalyzer) };
+    let analyzer = unsafe { Box::from_raw(analyzer as *mut NeedleAudioAnalyzer) };
     drop(analyzer);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn needle_audio_analyzer_run(
-    _analyzer: *mut NeedleAnalyzer,
-    _hash_period: f32,
-    _hash_duration: f32,
-    _persist: bool,
+    analyzer: *mut NeedleAudioAnalyzer,
+    hash_period: f32,
+    hash_duration: f32,
+    persist: bool,
 ) -> NeedleError {
-    todo!()
+    if analyzer.is_null() {
+        return NeedleError::NullArgument;
+    }
+    if hash_period <= 0.0 {
+        return NeedleError::AnalyzerInvalidHashPeriod;
+    }
+    if hash_duration < 3.0 {
+        return NeedleError::AnalyzerInvalidHashDuration;
+    }
+
+    let analyzer = analyzer.as_ref().unwrap();
+
+    match analyzer.0.run(hash_period, hash_duration, persist) {
+        Ok(_) => NeedleError::None,
+        Err(e) => e.into(),
+    }
 }
 
 /// Wraps [needle::audio::Comparator] with a C API.
@@ -133,9 +262,22 @@ pub unsafe extern "C" fn needle_audio_analyzer_run(
 /// #include <needle.h>
 ///
 /// NeedleError err;
-/// NeedleComparator *comparator = NULL;
+/// NeedleAudioComparator *comparator = NULL;
 ///
-/// err = needle_audio_comparator_new(..., &comparator);
+/// char *video_paths[] = {
+///     "/tmp/abcd.mkv",
+///     "/tmp/efgh.mp4",
+/// };
+/// const int NUM_PATHS = 2;
+///
+/// err = needle_audio_comparator_new(paths, NUM_PATHS,
+///                                   10,
+///                                   0.33,
+///                                   0.25,
+///                                   20.0,
+///                                   10.0,
+///                                   0.0,
+///                                   &comparator);
 /// if (err != 0) {
 ///     printf("Failed to create comparator: %s\n", needle_error_to_str(err));
 ///     return;
@@ -144,15 +286,14 @@ pub unsafe extern "C" fn needle_audio_analyzer_run(
 /// err = needle_audio_comparator_run(comparator, ...);
 /// if (err != 0) {
 ///     printf("Failed to run comparator: %s\n", needle_error_to_str(err));
-///     return;
 /// }
 ///
 /// needle_audio_comparator_free(comparator);
 /// ```
 #[derive(Debug, Default)]
-pub struct NeedleComparator(audio::Comparator<PathBuf>);
+pub struct NeedleAudioComparator(audio::Comparator<PathBuf>);
 
-/// Constructs a new [NeedleComparator].
+/// Constructs a new [NeedleAudioComparator].
 #[no_mangle]
 pub unsafe extern "C" fn needle_audio_comparator_new(
     paths: *const *const libc::c_char,
@@ -163,7 +304,7 @@ pub unsafe extern "C" fn needle_audio_comparator_new(
     min_opening_duration: f32,
     min_ending_duration: f32,
     time_padding: f32,
-    output: *mut *const NeedleComparator,
+    output: *mut *const NeedleAudioComparator,
 ) -> NeedleError {
     if paths.is_null() || output.is_null() {
         return NeedleError::NullArgument;
@@ -190,23 +331,23 @@ pub unsafe extern "C" fn needle_audio_comparator_new(
         time_padding,
     );
 
-    *output = Box::into_raw(Box::new(NeedleComparator(comparator)));
+    *output = Box::into_raw(Box::new(NeedleAudioComparator(comparator)));
 
     NeedleError::None
 }
 
 #[no_mangle]
-pub extern "C" fn needle_audio_comparator_free(comparator: *const NeedleComparator) {
+pub extern "C" fn needle_audio_comparator_free(comparator: *const NeedleAudioComparator) {
     if comparator == std::ptr::null_mut() {
         return;
     }
-    let comparator = unsafe { Box::from_raw(comparator as *mut NeedleComparator) };
+    let comparator = unsafe { Box::from_raw(comparator as *mut NeedleAudioComparator) };
     drop(comparator);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn needle_audio_comparator_run(
-    _comparator: *mut NeedleComparator,
+    _comparator: *mut NeedleAudioComparator,
     _analyze: bool,
     _display: bool,
     _use_skip_files: bool,
