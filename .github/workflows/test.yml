@@ -3,12 +3,12 @@ name: test
 on:
   push:
     paths-ignore:
-      - '*.md'
+      - '**/*.md'
     branches:
       - main
   pull_request:
     paths-ignore:
-      - '*.md'
+      - '**/*.md'
 
 env:
   CARGO_TERM_COLOR: always
@@ -29,7 +29,7 @@ jobs:
     - name: Test needle
       run: cd needle && cargo test -v
     - name: Test needle-capi
-      run: cd needle-capi && cargo test -v
+      run: cd needle-capi && cargo build -v && cargo test -v
     - name: Build needle-capi examples
       run: cd needle-capi/examples && make all
   macos:
@@ -42,7 +42,7 @@ jobs:
     - name: Test needle
       run: cd needle && cargo test -v
     - name: Test needle-capi
-      run: cd needle-capi && cargo test -v
+      run: cd needle-capi && cargo build -v && cargo test -v
     - name: Build needle-capi examples
       run: cd needle-capi/examples && make all
   windows:
