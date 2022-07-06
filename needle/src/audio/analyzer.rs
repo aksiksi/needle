@@ -87,6 +87,10 @@ impl<P: AsRef<Path>> Analyzer<P> {
         }
     }
 
+    pub fn paths(&self) -> &[P] {
+        return &self.paths
+    }
+
     fn find_best_audio_stream(
         input: &ffmpeg_next::format::context::Input,
     ) -> ffmpeg_next::format::stream::Stream {

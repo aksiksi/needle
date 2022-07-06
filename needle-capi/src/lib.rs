@@ -8,8 +8,8 @@
 //!
 //! void main() {
 //!     NeedleError err;
-//!     NeedleAudioAnalyzer *analyzer = NULL;
-//!     NeedleAudioComparator *comparator = NULL;
+//!     const NeedleAudioAnalyzer *analyzer = NULL;
+//!     const NeedleAudioComparator *comparator = NULL;
 //!
 //!     char *video_paths[] = {
 //!         "/tmp/abcd.mkv",
@@ -171,7 +171,7 @@ fn get_paths_from_raw(
 /// #include <needle.h>
 ///
 /// NeedleError err;
-/// NeedleAudioAnalyzer *analyzer = NULL;
+/// const NeedleAudioAnalyzer *analyzer = NULL;
 ///
 /// char *video_paths[] = {
 ///     "/tmp/abcd.mkv",
@@ -236,8 +236,21 @@ pub extern "C" fn needle_audio_analyzer_free(analyzer: *const NeedleAudioAnalyze
 }
 
 #[no_mangle]
+pub extern "C" fn needle_audio_analyzer_print_paths(analyzer: *const NeedleAudioAnalyzer) {
+    if analyzer.is_null() {
+        return;
+    }
+
+    let analyzer = unsafe { analyzer.as_ref().unwrap() };
+
+    for path in analyzer.0.paths() {
+        println!("{}", path.display());
+    }
+}
+
+#[no_mangle]
 pub extern "C" fn needle_audio_analyzer_run(
-    analyzer: *mut NeedleAudioAnalyzer,
+    analyzer: *const NeedleAudioAnalyzer,
     hash_period: f32,
     hash_duration: f32,
     persist: bool,
@@ -269,7 +282,7 @@ pub extern "C" fn needle_audio_analyzer_run(
 /// #include <needle.h>
 ///
 /// NeedleError err;
-/// NeedleAudioComparator *comparator = NULL;
+/// const NeedleAudioComparator *comparator = NULL;
 ///
 /// char *video_paths[] = {
 ///     "/tmp/abcd.mkv",
@@ -360,7 +373,7 @@ pub extern "C" fn needle_audio_comparator_free(comparator: *const NeedleAudioCom
 
 #[no_mangle]
 pub extern "C" fn needle_audio_comparator_run(
-    comparator: *mut NeedleAudioComparator,
+    comparator: *const NeedleAudioComparator,
     analyze: bool,
     display: bool,
     use_skip_files: bool,

@@ -29,7 +29,7 @@ typedef enum NeedleError {
  * #include <needle.h>
  *
  * NeedleError err;
- * NeedleAudioAnalyzer *analyzer = NULL;
+ * const NeedleAudioAnalyzer *analyzer = NULL;
  *
  * char *video_paths[] = {
  *     "/tmp/abcd.mkv",
@@ -63,7 +63,7 @@ typedef struct NeedleAudioAnalyzer NeedleAudioAnalyzer;
  * #include <needle.h>
  *
  * NeedleError err;
- * NeedleAudioComparator *comparator = NULL;
+ * const NeedleAudioComparator *comparator = NULL;
  *
  * char *video_paths[] = {
  *     "/tmp/abcd.mkv",
@@ -110,7 +110,9 @@ enum NeedleError needle_audio_analyzer_new(const char *const *paths,
 
 void needle_audio_analyzer_free(const struct NeedleAudioAnalyzer *analyzer);
 
-enum NeedleError needle_audio_analyzer_run(struct NeedleAudioAnalyzer *analyzer,
+void needle_audio_analyzer_print_paths(const struct NeedleAudioAnalyzer *analyzer);
+
+enum NeedleError needle_audio_analyzer_run(const struct NeedleAudioAnalyzer *analyzer,
                                            float hash_period,
                                            float hash_duration,
                                            bool persist);
@@ -130,7 +132,7 @@ enum NeedleError needle_audio_comparator_new(const char *const *paths,
 
 void needle_audio_comparator_free(const struct NeedleAudioComparator *comparator);
 
-enum NeedleError needle_audio_comparator_run(struct NeedleAudioComparator *comparator,
+enum NeedleError needle_audio_comparator_run(const struct NeedleAudioComparator *comparator,
                                              bool analyze,
                                              bool display,
                                              bool use_skip_files);
