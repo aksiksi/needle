@@ -22,5 +22,8 @@ crate-type = ["cdylib"]
 needle-rs = { version = "0.1", path = "../needle" }
 libc = "0.2"
 
+[features]
+static = ["needle-rs/static"]
+
 [build-dependencies]
 cbindgen = "0.20.0"
