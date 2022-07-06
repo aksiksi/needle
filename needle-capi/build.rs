@@ -13,5 +13,5 @@ fn main() {
         .with_config(config)
         .generate()
         .expect("Unable to generate bindings")
-        .write_to_file("target/bindings.h");
+        .write_to_file("bindings.h");
 }
