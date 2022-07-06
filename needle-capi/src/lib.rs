@@ -1,32 +1,35 @@
+use std::ffi::CStr;
+use std::path::PathBuf;
 use std::time::Duration;
-use std::{ffi::CStr, path::PathBuf};
 
 use needle::audio;
 
 #[repr(C)]
 #[derive(Debug, PartialEq)]
-pub enum Error {
+pub enum NeedleError {
     None = 0,
     InvalidUtf8String,
     NullArgument,
-    ComparatorNumPaths,
+    ComparatorMinimumPaths,
 }
 
 #[no_mangle]
-pub extern "C" fn needle_error_to_str(error: Error) -> *const libc::c_char {
+pub extern "C" fn needle_error_to_str(error: NeedleError) -> *const libc::c_char {
     match error {
-        Error::None => unsafe {
+        NeedleError::None => unsafe {
             CStr::from_bytes_with_nul_unchecked("No error\0".as_bytes()).as_ptr()
         },
-        Error::InvalidUtf8String => unsafe {
+        NeedleError::InvalidUtf8String => unsafe {
             CStr::from_bytes_with_nul_unchecked("Invalid UTF-8 string\0".as_bytes()).as_ptr()
         },
-        Error::NullArgument => unsafe {
+        NeedleError::NullArgument => unsafe {
             CStr::from_bytes_with_nul_unchecked("Input argument is null\0".as_bytes()).as_ptr()
         },
-        Error::ComparatorNumPaths => unsafe {
-            CStr::from_bytes_with_nul_unchecked("Comparator requires at least 2 paths\0".as_bytes())
-                .as_ptr()
+        NeedleError::ComparatorMinimumPaths => unsafe {
+            CStr::from_bytes_with_nul_unchecked(
+                "Comparator requires at least 2 video paths\0".as_bytes(),
+            )
+            .as_ptr()
         },
     }
 }
@@ -58,21 +61,21 @@ pub unsafe extern "C" fn needle_audio_analyzer_new(
     threaded_decoding: bool,
     force: bool,
     output: *mut *const Analyzer,
-) -> Error {
+) -> NeedleError {
     if paths.is_null() || output.is_null() {
-        return Error::NullArgument;
+        return NeedleError::NullArgument;
     }
 
     let paths = match get_paths_from_raw(paths, num_paths) {
         Some(v) => v,
-        None => return Error::InvalidUtf8String,
+        None => return NeedleError::InvalidUtf8String,
     };
 
     let analyzer = audio::Analyzer::from_files(paths, threaded_decoding, force);
 
     *output = Box::into_raw(Box::new(Analyzer(analyzer)));
 
-    Error::None
+    NeedleError::None
 }
 
 #[no_mangle]
@@ -90,7 +93,7 @@ pub unsafe extern "C" fn needle_audio_analyzer_run(
     _hash_period: f32,
     _hash_duration: f32,
     _persist: bool,
-) -> Error {
+) -> NeedleError {
     todo!()
 }
 
@@ -108,17 +111,17 @@ pub unsafe extern "C" fn needle_audio_comparator_new(
     min_ending_duration: f32,
     time_padding: f32,
     output: *mut *const Comparator,
-) -> Error {
+) -> NeedleError {
     if paths.is_null() || output.is_null() {
-        return Error::NullArgument;
+        return NeedleError::NullArgument;
     }
     if num_paths < 2 {
-        return Error::ComparatorNumPaths;
+        return NeedleError::ComparatorMinimumPaths;
     }
 
     let paths = match get_paths_from_raw(paths, num_paths) {
         Some(v) => v,
-        None => return Error::InvalidUtf8String,
+        None => return NeedleError::InvalidUtf8String,
     };
 
     let min_opening_duration = Duration::from_secs_f32(min_opening_duration);
@@ -136,7 +139,7 @@ pub unsafe extern "C" fn needle_audio_comparator_new(
 
     *output = Box::into_raw(Box::new(Comparator(comparator)));
 
-    Error::None
+    NeedleError::None
 }
 
 #[no_mangle]
@@ -154,7 +157,7 @@ pub unsafe extern "C" fn needle_audio_comparator_run(
     _analyze: bool,
     _display: bool,
     _use_skip_files: bool,
-) -> Error {
+) -> NeedleError {
     todo!()
 }
 
@@ -171,7 +174,7 @@ mod test {
         let error = unsafe {
             needle_audio_analyzer_new(path_ptrs.as_ptr(), num_paths, false, false, &mut analyzer)
         };
-        assert_eq!(error, Error::None);
+        assert_eq!(error, NeedleError::None);
         assert_ne!(analyzer, std::ptr::null());
         needle_audio_analyzer_free(analyzer);
     }
@@ -196,7 +199,7 @@ mod test {
                 &mut comparator,
             )
         };
-        assert_eq!(error, Error::None);
+        assert_eq!(error, NeedleError::None);
         assert_ne!(comparator, std::ptr::null());
         needle_audio_comparator_free(comparator);
     }
