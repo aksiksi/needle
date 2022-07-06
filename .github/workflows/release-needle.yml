@@ -25,7 +25,7 @@ jobs:
       - uses: google-github-actions/release-please-action@v3
         id: release
         with:
-          package-name: needle
+          path: needle
           release-type: rust
           monorepo-tags: true
           bump-minor-pre-major: true
@@ -61,7 +61,7 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ env.TAG_NAME }}
-        files: target/release/*.tar.gz
+        files: needle/target/release/*.tar.gz
   macos:
     runs-on: macos-latest
     needs: release-please
@@ -81,7 +81,7 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ env.TAG_NAME }}
-        files: target/release/*.tar.gz
+        files: needle/target/release/*.tar.gz
   windows:
     runs-on: windows-latest
     needs: release-please
@@ -111,14 +111,14 @@ jobs:
           !${{ env.VCPKG_ROOT }}/packages
           !${{ env.VCPKG_ROOT }}/downloads
           !${{ env.VCPKG_ROOT }}/installed
-        key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles( 'Cargo.lock' ) }}
+        key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles( 'needle/Cargo.lock' ) }}
     - name: Install dependencies
       run: cargo vcpkg --verbose build
       shell: bash
     - name: Build release version
       run: cargo build -v --release --features static
     - name: Compress binary (using Powershell)
-      run: Compress-Archive -Path "$env:GITHUB_WORKSPACE\target\release\needle.exe" -DestinationPath "$env:GITHUB_WORKSPACE\$env:TAG_NAME-windows-amd64.zip"
+      run: Compress-Archive -Path "$env:GITHUB_WORKSPACE\needle\target\release\needle.exe" -DestinationPath "$env:GITHUB_WORKSPACE\$env:TAG_NAME-windows-amd64.zip"
       shell: pwsh
     - name: Upload binary to the release
       uses: softprops/action-gh-release@v1
