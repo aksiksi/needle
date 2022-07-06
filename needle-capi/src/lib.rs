@@ -13,6 +13,7 @@ pub enum NeedleError {
     ComparatorMinimumPaths,
 }
 
+/// Returns the string representation of the given [NeedleError].
 #[no_mangle]
 pub extern "C" fn needle_error_to_str(error: NeedleError) -> *const libc::c_char {
     match error {
@@ -51,16 +52,42 @@ unsafe fn get_paths_from_raw(
     Some(paths)
 }
 
+/// Wraps [needle::audio::Analyzer] with a C API.
+///
+/// # Example
+///
+/// ```c
+/// #include <stdio.h>
+/// #include <needle.h>
+///
+/// NeedleError err;
+/// NeedleAnalyzer *analyzer = NULL;
+///
+/// err = needle_audio_analyzer_new(..., &analyzer);
+/// if (err != 0) {
+///     printf("Failed to create analyzer: %s\n", needle_error_to_str(err));
+///     return;
+/// }
+///
+/// err = needle_audio_analyzer_run(analyzer, ...);
+/// if (err != 0) {
+///     printf("Failed to run analyzer: %s\n", needle_error_to_str(err));
+///     return;
+/// }
+///
+/// needle_audio_analyzer_free(analyzer);
+/// ```
 #[derive(Debug, Default)]
-pub struct Analyzer(audio::Analyzer<PathBuf>);
+pub struct NeedleAnalyzer(audio::Analyzer<PathBuf>);
 
+/// Constructs a new [NeedleAnalyzer].
 #[no_mangle]
 pub unsafe extern "C" fn needle_audio_analyzer_new(
     paths: *const *const libc::c_char,
     num_paths: libc::size_t,
     threaded_decoding: bool,
     force: bool,
-    output: *mut *const Analyzer,
+    output: *mut *const NeedleAnalyzer,
 ) -> NeedleError {
     if paths.is_null() || output.is_null() {
         return NeedleError::NullArgument;
@@ -73,23 +100,23 @@ pub unsafe extern "C" fn needle_audio_analyzer_new(
 
     let analyzer = audio::Analyzer::from_files(paths, threaded_decoding, force);
 
-    *output = Box::into_raw(Box::new(Analyzer(analyzer)));
+    *output = Box::into_raw(Box::new(NeedleAnalyzer(analyzer)));
 
     NeedleError::None
 }
 
 #[no_mangle]
-pub extern "C" fn needle_audio_analyzer_free(analyzer: *const Analyzer) {
+pub extern "C" fn needle_audio_analyzer_free(analyzer: *const NeedleAnalyzer) {
     if analyzer == std::ptr::null_mut() {
         return;
     }
-    let analyzer = unsafe { Box::from_raw(analyzer as *mut Analyzer) };
+    let analyzer = unsafe { Box::from_raw(analyzer as *mut NeedleAnalyzer) };
     drop(analyzer);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn needle_audio_analyzer_run(
-    _analyzer: *mut Analyzer,
+    _analyzer: *mut NeedleAnalyzer,
     _hash_period: f32,
     _hash_duration: f32,
     _persist: bool,
@@ -97,9 +124,35 @@ pub unsafe extern "C" fn needle_audio_analyzer_run(
     todo!()
 }
 
+/// Wraps [needle::audio::Comparator] with a C API.
+///
+/// # Example
+///
+/// ```c
+/// #include <stdio.h>
+/// #include <needle.h>
+///
+/// NeedleError err;
+/// NeedleComparator *comparator = NULL;
+///
+/// err = needle_audio_comparator_new(..., &comparator);
+/// if (err != 0) {
+///     printf("Failed to create comparator: %s\n", needle_error_to_str(err));
+///     return;
+/// }
+///
+/// err = needle_audio_comparator_run(comparator, ...);
+/// if (err != 0) {
+///     printf("Failed to run comparator: %s\n", needle_error_to_str(err));
+///     return;
+/// }
+///
+/// needle_audio_comparator_free(comparator);
+/// ```
 #[derive(Debug, Default)]
-pub struct Comparator(audio::Comparator<PathBuf>);
+pub struct NeedleComparator(audio::Comparator<PathBuf>);
 
+/// Constructs a new [NeedleComparator].
 #[no_mangle]
 pub unsafe extern "C" fn needle_audio_comparator_new(
     paths: *const *const libc::c_char,
@@ -110,7 +163,7 @@ pub unsafe extern "C" fn needle_audio_comparator_new(
     min_opening_duration: f32,
     min_ending_duration: f32,
     time_padding: f32,
-    output: *mut *const Comparator,
+    output: *mut *const NeedleComparator,
 ) -> NeedleError {
     if paths.is_null() || output.is_null() {
         return NeedleError::NullArgument;
@@ -137,23 +190,23 @@ pub unsafe extern "C" fn needle_audio_comparator_new(
         time_padding,
     );
 
-    *output = Box::into_raw(Box::new(Comparator(comparator)));
+    *output = Box::into_raw(Box::new(NeedleComparator(comparator)));
 
     NeedleError::None
 }
 
 #[no_mangle]
-pub extern "C" fn needle_audio_comparator_free(comparator: *const Comparator) {
+pub extern "C" fn needle_audio_comparator_free(comparator: *const NeedleComparator) {
     if comparator == std::ptr::null_mut() {
         return;
     }
-    let comparator = unsafe { Box::from_raw(comparator as *mut Comparator) };
+    let comparator = unsafe { Box::from_raw(comparator as *mut NeedleComparator) };
     drop(comparator);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn needle_audio_comparator_run(
-    _comparator: *mut Comparator,
+    _comparator: *mut NeedleComparator,
     _analyze: bool,
     _display: bool,
     _use_skip_files: bool,
