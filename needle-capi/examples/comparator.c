@@ -11,14 +11,7 @@ int main() {
     };
     const int NUM_PATHS = 2;
 
-    err = needle_audio_comparator_new(video_paths, NUM_PATHS,
-                                      10,
-                                      0.33,
-                                      0.25,
-                                      20.0,
-                                      10.0,
-                                      0.0,
-                                      &comparator);
+    err = needle_audio_comparator_new_default(video_paths, NUM_PATHS, &comparator);
     if (err != 0) {
         printf("Failed to create comparator: %s\n", needle_error_to_str(err));
         goto done;

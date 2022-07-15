@@ -75,8 +75,8 @@ typedef struct NeedleAudioAnalyzer NeedleAudioAnalyzer;
  *                                   10,
  *                                   0.33,
  *                                   0.25,
- *                                   20.0,
- *                                   10.0,
+ *                                   20,
+ *                                   10,
  *                                   0.0,
  *                                   &comparator);
  * if (err != 0) {
@@ -100,6 +100,13 @@ typedef struct NeedleAudioComparator NeedleAudioComparator;
 const char *needle_error_to_str(enum NeedleError error);
 
 /**
+ * Constructs a new [NeedleAudioAnalyzer] with sane defaults.
+ */
+enum NeedleError needle_audio_analyzer_new_default(const char *const *paths,
+                                                   size_t num_paths,
+                                                   const struct NeedleAudioAnalyzer **output);
+
+/**
  * Constructs a new [NeedleAudioAnalyzer].
  */
 enum NeedleError needle_audio_analyzer_new(const char *const *paths,
@@ -118,6 +125,15 @@ enum NeedleError needle_audio_analyzer_run(const struct NeedleAudioAnalyzer *ana
                                            bool persist);
 
 /**
+ * Constructs a new [NeedleAudioComparator] using sane defaults.
+ *
+ * Refer to the library to see these values.
+ */
+enum NeedleError needle_audio_comparator_new_default(const char *const *paths,
+                                                     size_t num_paths,
+                                                     const struct NeedleAudioComparator **output);
+
+/**
  * Constructs a new [NeedleAudioComparator].
  */
 enum NeedleError needle_audio_comparator_new(const char *const *paths,
@@ -125,8 +141,8 @@ enum NeedleError needle_audio_comparator_new(const char *const *paths,
                                              uint16_t hash_match_threshold,
                                              float opening_search_percentage,
                                              float ending_search_percentage,
-                                             float min_opening_duration,
-                                             float min_ending_duration,
+                                             uint16_t min_opening_duration,
+                                             uint16_t min_ending_duration,
                                              float time_padding,
                                              const struct NeedleAudioComparator **output);
 

@@ -18,19 +18,12 @@
 //!     const int NUM_PATHS = 2;
 //!
 //!     // Setup the analyzer and comparator.
-//!     err = needle_audio_analyzer_new(paths, NUM_PATHS, false, false, &analyzer);
+//!     err = needle_audio_analyzer_new_default(paths, NUM_PATHS, &analyzer);
 //!     if (err != 0) {
 //!         printf("Failed to create analyzer: %s\n", needle_error_to_str(err));
 //!         goto done;
 //!     }
-//!     err = needle_audio_comparator_new(paths, NUM_PATHS,
-//!                                       10,
-//!                                       0.33,
-//!                                       0.25,
-//!                                       20.0,
-//!                                       10.0,
-//!                                       0.0,
-//!                                       &comparator);
+//!     err = needle_audio_comparator_new_default(paths, NUM_PATHS, &comparator);
 //!     if (err != 0) {
 //!         printf("Failed to create comparator: %s\n", needle_error_to_str(err));
 //!         goto done;
@@ -195,6 +188,16 @@ fn get_paths_from_raw(
 #[derive(Debug, Default)]
 pub struct NeedleAudioAnalyzer(audio::Analyzer<PathBuf>);
 
+/// Constructs a new [NeedleAudioAnalyzer] with sane defaults.
+#[no_mangle]
+pub extern "C" fn needle_audio_analyzer_new_default(
+    paths: *const *const libc::c_char,
+    num_paths: libc::size_t,
+    output: *mut *const NeedleAudioAnalyzer,
+) -> NeedleError {
+    needle_audio_analyzer_new(paths, num_paths, false, false, output)
+}
+
 /// Constructs a new [NeedleAudioAnalyzer].
 #[no_mangle]
 pub extern "C" fn needle_audio_analyzer_new(
@@ -294,8 +297,8 @@ pub extern "C" fn needle_audio_analyzer_run(
 ///                                   10,
 ///                                   0.33,
 ///                                   0.25,
-///                                   20.0,
-///                                   10.0,
+///                                   20,
+///                                   10,
 ///                                   0.0,
 ///                                   &comparator);
 /// if (err != 0) {
@@ -313,6 +316,28 @@ pub extern "C" fn needle_audio_analyzer_run(
 #[derive(Debug, Default)]
 pub struct NeedleAudioComparator(audio::Comparator<PathBuf>);
 
+/// Constructs a new [NeedleAudioComparator] using sane defaults.
+///
+/// Refer to the library to see these values.
+#[no_mangle]
+pub extern "C" fn needle_audio_comparator_new_default(
+    paths: *const *const libc::c_char,
+    num_paths: libc::size_t,
+    output: *mut *const NeedleAudioComparator,
+) -> NeedleError {
+    needle_audio_comparator_new(
+        paths,
+        num_paths,
+        audio::DEFAULT_HASH_MATCH_THRESHOLD,
+        audio::DEFAULT_OPENING_SEARCH_PERCENTAGE,
+        audio::DEFAULT_ENDING_SEARCH_PERCENTAGE,
+        audio::DEFAULT_MIN_OPENING_DURATION,
+        audio::DEFAULT_MIN_ENDING_DURATION,
+        0.0,
+        output,
+    )
+}
+
 /// Constructs a new [NeedleAudioComparator].
 #[no_mangle]
 pub extern "C" fn needle_audio_comparator_new(
@@ -321,8 +346,8 @@ pub extern "C" fn needle_audio_comparator_new(
     hash_match_threshold: u16,
     opening_search_percentage: f32,
     ending_search_percentage: f32,
-    min_opening_duration: f32,
-    min_ending_duration: f32,
+    min_opening_duration: u16,
+    min_ending_duration: u16,
     time_padding: f32,
     output: *mut *const NeedleAudioComparator,
 ) -> NeedleError {
@@ -338,8 +363,8 @@ pub extern "C" fn needle_audio_comparator_new(
         None => return NeedleError::InvalidUtf8String,
     };
 
-    let min_opening_duration = Duration::from_secs_f32(min_opening_duration);
-    let min_ending_duration = Duration::from_secs_f32(min_ending_duration);
+    let min_opening_duration = Duration::from_secs(min_opening_duration as u64);
+    let min_ending_duration = Duration::from_secs(min_ending_duration as u64);
     let time_padding = Duration::from_secs_f32(time_padding);
     let comparator = audio::Comparator::from_files(
         paths,
@@ -408,6 +433,19 @@ mod test {
     }
 
     #[test]
+    fn test_analyzer_default() {
+        let paths = ["/tmp/abcd.mkv".to_string()].map(|s| std::ffi::CString::new(s).unwrap());
+        let path_ptrs: Vec<*const libc::c_char> = paths.iter().map(|s| s.as_ptr()).collect();
+        let num_paths = paths.len();
+        let mut analyzer = std::ptr::null();
+        let error =
+            needle_audio_analyzer_new_default(path_ptrs.as_ptr(), num_paths, &mut analyzer);
+        assert_eq!(error, NeedleError::Ok);
+        assert_ne!(analyzer, std::ptr::null());
+        needle_audio_analyzer_free(analyzer);
+    }
+
+    #[test]
     fn test_comparator() {
         let paths = ["/tmp/abcd.mkv".to_string(), "/tmp/efgh.mp4".to_string()]
             .map(|s| std::ffi::CString::new(s).unwrap());
@@ -420,9 +458,26 @@ mod test {
             10,
             0.33,
             0.2,
-            10.0,
-            10.0,
+            10,
+            10,
             0.0,
+            &mut comparator,
+        );
+        assert_eq!(error, NeedleError::Ok);
+        assert_ne!(comparator, std::ptr::null());
+        needle_audio_comparator_free(comparator);
+    }
+
+    #[test]
+    fn test_comparator_default() {
+        let paths = ["/tmp/abcd.mkv".to_string(), "/tmp/efgh.mp4".to_string()]
+            .map(|s| std::ffi::CString::new(s).unwrap());
+        let path_ptrs: Vec<*const libc::c_char> = paths.iter().map(|s| s.as_ptr()).collect();
+        let num_paths = paths.len();
+        let mut comparator = std::ptr::null();
+        let error = needle_audio_comparator_new_default(
+            path_ptrs.as_ptr(),
+            num_paths,
             &mut comparator,
         );
         assert_eq!(error, NeedleError::Ok);

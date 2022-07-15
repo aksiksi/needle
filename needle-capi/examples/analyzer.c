@@ -12,7 +12,7 @@ int main() {
     const int NUM_PATHS = 2;
 
     // Setup the analyzer and comparator.
-    err = needle_audio_analyzer_new(video_paths, NUM_PATHS, false, false, &analyzer);
+    err = needle_audio_analyzer_new_default(video_paths, NUM_PATHS, &analyzer);
     if (err != 0) {
         printf("Failed to create analyzer: %s\n", needle_error_to_str(err));
         goto done;
