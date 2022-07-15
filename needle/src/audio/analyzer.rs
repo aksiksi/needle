@@ -68,12 +68,12 @@ pub struct Analyzer<P: AsRef<Path>> {
     force: bool,
 }
 
-impl<P: AsRef<Path> + Sync> Default for Analyzer<P> {
+impl<P: AsRef<Path>> Default for Analyzer<P> {
     fn default() -> Self {
         Self {
             paths: Default::default(),
-            threaded_decoding: Default::default(),
-            force: Default::default(),
+            threaded_decoding: false,
+            force: false,
         }
     }
 }
@@ -88,7 +88,7 @@ impl<P: AsRef<Path>> Analyzer<P> {
     }
 
     pub fn paths(&self) -> &[P] {
-        return &self.paths
+        &self.paths
     }
 
     fn find_best_audio_stream(
@@ -282,13 +282,19 @@ impl<P: AsRef<Path>> Analyzer<P> {
 }
 
 impl<P: AsRef<Path> + Sync> Analyzer<P> {
-    pub fn run(&self, hash_period: f32, hash_duration: f32, persist: bool) -> Result<Vec<FrameHashes>> {
+    pub fn run(
+        &self,
+        hash_period: f32,
+        hash_duration: f32,
+        persist: bool,
+    ) -> Result<Vec<FrameHashes>> {
         if self.paths.len() == 0 {
             return Err(Error::AnalyzerMissingPaths.into());
         }
 
         #[cfg(feature = "rayon")]
-        let data = self.paths
+        let data = self
+            .paths
             .par_iter()
             .map(|path| {
                 self.run_single(path, hash_period, hash_duration, persist)
@@ -297,7 +303,8 @@ impl<P: AsRef<Path> + Sync> Analyzer<P> {
             .collect::<Vec<_>>();
 
         #[cfg(not(feature = "rayon"))]
-        let data = self.paths
+        let data = self
+            .paths
             .iter()
             .map(|path| {
                 self.run_single(path, hash_period, hash_duration, persist)

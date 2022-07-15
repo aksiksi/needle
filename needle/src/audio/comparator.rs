@@ -52,7 +52,7 @@ struct SearchResult {
 }
 
 /// Compares two audio streams.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Comparator<P: AsRef<Path>> {
     videos: Vec<P>,
     hash_match_threshold: u32,
@@ -61,6 +61,20 @@ pub struct Comparator<P: AsRef<Path>> {
     min_opening_duration: Duration,
     min_ending_duration: Duration,
     time_padding: Duration,
+}
+
+impl<P: AsRef<Path>> Default for Comparator<P> {
+    fn default() -> Self {
+        Self {
+            videos: Vec::new(),
+            hash_match_threshold: super::DEFAULT_HASH_MATCH_THRESHOLD as u32,
+            opening_search_percentage: super::DEFAULT_OPENING_SEARCH_PERCENTAGE,
+            ending_search_percentage: super::DEFAULT_ENDING_SEARCH_PERCENTAGE,
+            min_opening_duration: Duration::from_secs(super::DEFAULT_MIN_OPENING_DURATION as u64),
+            min_ending_duration: Duration::from_secs(super::DEFAULT_MIN_ENDING_DURATION as u64),
+            time_padding: Duration::ZERO,
+        }
+    }
 }
 
 impl<P: AsRef<Path>> Comparator<P> {
