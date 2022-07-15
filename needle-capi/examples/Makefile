@@ -4,7 +4,10 @@ LIBS = -lneedle_capi
 
 .PHONY: all
 
-all: analyzer
+all: analyzer comparator
 
 analyzer: analyzer.c
 	gcc analyzer.c $(INCFLAGS) $(LDFLAGS) $(LIBS) -o analyzer.out
+
+comparator: comparator.c
+	gcc comparator.c $(INCFLAGS) $(LDFLAGS) $(LIBS) -o comparator.out
