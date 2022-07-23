@@ -260,3 +260,12 @@ cargo vcpkg build
 ```
 cargo build --release
 ```
+
+## License
+
+This work is dual-licensed under MIT and LGPL 2.1.
+
+If you choose to statically link FFmpeg, this is licensed as LGPL 2.1. Otherwise, you can use the [MIT license](https://tldrlegal.com/license/mit-license).
+
+`SPDX-License-Identifier: MIT OR LGPL-2.1`
+

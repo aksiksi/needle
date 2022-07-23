@@ -1,0 +1,2 @@
+MIT OR LGPL-2.1
+
