@@ -42,9 +42,12 @@ infer = { version = "0.8", default-features = false }
 insta = "1"
 
 [features]
-default = ["rayon", "chromaprint-rust/static"]
+default = ["rayon", "static-chromaprint"]
 video = ["blockhash", "image"]
-static = ["chromaprint-rust/static", "ffmpeg-next/static"]
+static-chromaprint = ["chromaprint-rust/static"]
+static-ffmpeg = ["ffmpeg-next/static"]
+static-ffmpeg-build = ["ffmpeg-next/build"]
+static = ["static-chromaprint", "static-ffmpeg"]
 
 [target.'cfg(windows)'.build-dependencies]
 vcpkg = "0.2"
