@@ -13,3 +13,22 @@ rustflags = [
     "-C", "link-arg=shlwapi.lib",
     "-C", "link-arg=oleaut32.lib"
 ]
+
+[build]
+# Needed to pass MSVC linker flags to rustdoc
+# rustdoc does not get the regular rustflags passed to it
+# See: https://github.com/rust-lang/cargo/issues/6650
+rustdocflags = [
+    "-C", "link-arg=strmiids.lib",
+    "-C", "link-arg=mf.lib",
+    "-C", "link-arg=mfplat.lib",
+    "-C", "link-arg=mfplay.lib",
+    "-C", "link-arg=mfreadwrite.lib",
+    "-C", "link-arg=mfuuid.lib",
+    "-C", "link-arg=dxva2.lib",
+    "-C", "link-arg=evr.lib",
+    "-C", "link-arg=vfw32.lib",
+    "-C", "link-arg=shlwapi.lib",
+    "-C", "link-arg=oleaut32.lib"
+]
+
