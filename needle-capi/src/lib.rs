@@ -400,6 +400,7 @@ pub extern "C" fn needle_audio_comparator_run(
     analyze: bool,
     display: bool,
     use_skip_files: bool,
+    write_skip_files: bool,
 ) -> NeedleError {
     if comparator.is_null() {
         return NeedleError::NullArgument;
@@ -407,7 +408,7 @@ pub extern "C" fn needle_audio_comparator_run(
 
     let comparator = unsafe { comparator.as_ref().unwrap() };
 
-    match comparator.0.run(analyze, display, use_skip_files) {
+    match comparator.0.run(analyze, display, use_skip_files, write_skip_files) {
         Ok(_) => NeedleError::Ok,
         Err(e) => e.into(),
     }

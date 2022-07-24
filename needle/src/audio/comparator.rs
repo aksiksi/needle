@@ -471,7 +471,7 @@ impl<P: AsRef<Path>> Comparator<P> {
 }
 
 impl<T: AsRef<Path> + Sync> Comparator<T> {
-    pub fn run(&self, analyze: bool, display: bool, use_skip_files: bool) -> Result<()> {
+    pub fn run(&self, analyze: bool, display: bool, use_skip_files: bool, write_skip_files: bool) -> Result<()> {
         // Build a list of video pairs for actual search. Pairs should only appear once.
         // Given N videos, this will result in: (N * (N-1)) / 2 pairs
         let mut pairs = Vec::new();
@@ -551,7 +551,7 @@ impl<T: AsRef<Path> + Sync> Comparator<T> {
             if display {
                 self.display_opening_ending_info(path, result);
             }
-            if use_skip_files {
+            if write_skip_files {
                 self.create_skip_file(path, result)?;
             }
         }

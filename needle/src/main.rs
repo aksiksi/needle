@@ -137,9 +137,16 @@ enum Commands {
             long,
             default_value = "false",
             action(ArgAction::SetTrue),
-            help = "Disable skip files. These are JSON files that store the result of the search alongside each video file. When this flag is set, if a skip file exists for a video, it will be skipped during the pairwise search. This is necessary for incremental search to work."
+            help = "Ignore skip files on disk. These are JSON files that store the result of the search alongside each video file. When this flag is set, if a skip file exists for a video, it will be skipped during the pairwise search. Do not specify this flag if you want incremental search to work."
         )]
-        no_skip_files: bool,
+        ignore_skip_files: bool,
+
+        #[clap(
+            long,
+            default_value = "true",
+            help = "Write skip files to disk after the search is completed. These are JSON files that store the result of the search alongside each video file. If skip files already exist for a video, it will be skipped during the search. This is central to how incremental search works."
+        )]
+        write_skip_files: bool,
 
         #[clap(
             long,
@@ -332,7 +339,8 @@ fn main() -> needle::Result<()> {
             min_ending_duration,
             analyze,
             no_display,
-            no_skip_files,
+            ignore_skip_files,
+            write_skip_files,
             time_padding,
             ..
         } => {
@@ -357,7 +365,7 @@ fn main() -> needle::Result<()> {
                 .with_min_opening_duration(min_opening_duration)
                 .with_min_ending_duration(min_ending_duration)
                 .with_time_padding(time_padding);
-            comparator.run(analyze, !no_display, !no_skip_files)?;
+            comparator.run(analyze, !no_display, !ignore_skip_files, write_skip_files)?;
         }
     }
 

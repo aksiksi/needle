@@ -151,6 +151,7 @@ void needle_audio_comparator_free(const struct NeedleAudioComparator *comparator
 enum NeedleError needle_audio_comparator_run(const struct NeedleAudioComparator *comparator,
                                              bool analyze,
                                              bool display,
-                                             bool use_skip_files);
+                                             bool use_skip_files,
+                                             bool write_skip_files);
 
 #endif /* NEEDLE_H */
