@@ -18,6 +18,11 @@ exclude = [
 [lib]
 name = "needle"
 path = "src/lib.rs"
+# We need to disable doctests because rustflags are not passed
+# to rustdoc when building doctests. As a result, building them
+# fails on Windows (MSVC).
+# See: https://github.com/rust-lang/cargo/issues/6650
+doctest = false
 
 [[bin]]
 name = "needle"
