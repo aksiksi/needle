@@ -137,19 +137,6 @@ impl<P: AsRef<Path>> Analyzer<P> {
             .expect("unable to find an audio stream")
     }
 
-    // Returns the actual presentation timestamp for this frame (i.e., timebase agnostic).
-    #[allow(unused)]
-    fn frame_timestamp(
-        ctx: &mut ffmpeg_next::format::context::Input,
-        stream_idx: usize,
-        frame: &ffmpeg_next::frame::Audio,
-    ) -> Option<Duration> {
-        ctx.stream(stream_idx)
-            .map(|s| f64::from(s.time_base()))
-            .and_then(|time_base| frame.timestamp().map(|t| t as f64 * time_base * 1000.0))
-            .map(|ts| Duration::from_millis(ts as u64))
-    }
-
     // Given an audio stream, computes the fingerprint for raw audio for the given duration.
     //
     // `count` can be used to limit the number of frames to process.

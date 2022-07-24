@@ -1,20 +1,6 @@
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::Path;
 use std::time::Duration;
-
-#[allow(unused)]
-pub fn write_samples_in_range(
-    path: impl AsRef<Path>,
-    (start, end): (Duration, Duration),
-    samples: &[(Duration, Vec<u8>)],
-) {
-    let mut f = std::fs::File::create(&path).unwrap();
-    for (d, samples) in samples {
-        if *d >= start && *d <= end {
-            f.write(samples).unwrap();
-        }
-    }
-}
 
 pub fn format_time(t: Duration) -> String {
     let minutes = t.as_secs() / 60;
