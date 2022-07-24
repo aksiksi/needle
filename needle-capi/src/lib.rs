@@ -231,9 +231,10 @@ pub extern "C" fn needle_audio_analyzer_new(
 
 #[no_mangle]
 pub extern "C" fn needle_audio_analyzer_free(analyzer: *const NeedleAudioAnalyzer) {
-    if analyzer == std::ptr::null_mut() {
+    if analyzer.is_null() {
         return;
     }
+    // SAFETY: We assume that the user is passing in a _valid_ pointer. Otherwise, all bets are off.
     let analyzer = unsafe { Box::from_raw(analyzer as *mut NeedleAudioAnalyzer) };
     drop(analyzer);
 }
@@ -244,6 +245,7 @@ pub extern "C" fn needle_audio_analyzer_print_paths(analyzer: *const NeedleAudio
         return;
     }
 
+    // SAFETY: We assume that the user is passing in a _valid_ pointer. Otherwise, all bets are off.
     let analyzer = unsafe { analyzer.as_ref().unwrap() };
 
     for path in analyzer.0.paths() {
@@ -268,6 +270,7 @@ pub extern "C" fn needle_audio_analyzer_run(
         return NeedleError::AnalyzerInvalidHashDuration;
     }
 
+    // SAFETY: We assume that the user is passing in a _valid_ pointer. Otherwise, all bets are off.
     let analyzer = unsafe { analyzer.as_ref().unwrap() };
 
     match analyzer.0.run(hash_period, hash_duration, persist) {
@@ -387,9 +390,10 @@ pub extern "C" fn needle_audio_comparator_new(
 
 #[no_mangle]
 pub extern "C" fn needle_audio_comparator_free(comparator: *const NeedleAudioComparator) {
-    if comparator == std::ptr::null_mut() {
+    if comparator.is_null() {
         return;
     }
+    // SAFETY: We assume that the user is passing in a _valid_ pointer. Otherwise, all bets are off.
     let comparator = unsafe { Box::from_raw(comparator as *mut NeedleAudioComparator) };
     drop(comparator);
 }
@@ -406,6 +410,7 @@ pub extern "C" fn needle_audio_comparator_run(
         return NeedleError::NullArgument;
     }
 
+    // SAFETY: We assume that the user is passing in a _valid_ pointer. Otherwise, all bets are off.
     let comparator = unsafe { comparator.as_ref().unwrap() };
 
     match comparator.0.run(analyze, display, use_skip_files, write_skip_files) {
