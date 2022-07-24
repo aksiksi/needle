@@ -12,6 +12,13 @@ use rayon::prelude::*;
 use crate::util;
 use crate::{Error, Result};
 
+#[derive(serde::Deserialize, serde::Serialize)]
+struct SkipFile {
+    pub opening: Option<(f32, f32)>,
+    pub ending: Option<(f32, f32)>,
+    pub md5: String,
+}
+
 type ComparatorHeap = BinaryHeap<ComparatorHeapEntry>;
 
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -79,9 +86,7 @@ impl<P: AsRef<Path>> Default for Comparator<P> {
 }
 
 impl<P: AsRef<Path>> Comparator<P> {
-    pub fn from_files(
-        videos: impl Into<Vec<P>>,
-    ) -> Self {
+    pub fn from_files(videos: impl Into<Vec<P>>) -> Self {
         let mut comparator = Self::default();
         comparator.videos = videos.into();
         comparator
@@ -284,12 +289,26 @@ impl<P: AsRef<Path>> Comparator<P> {
         }
     }
 
-    fn check_for_skip_file(&self, path: &Path) -> bool {
-        let skip_file = path.clone().with_extension(super::SKIP_FILE_EXT);
-        skip_file.exists()
+    fn check_skip_file(video: impl AsRef<Path>) -> Result<bool> {
+        let skip_file = video
+            .as_ref()
+            .to_owned()
+            .with_extension(super::SKIP_FILE_EXT);
+        if !skip_file.exists() {
+            return Ok(false);
+        }
+
+        // Compute MD5 hash of the video header.
+        let md5 = crate::util::compute_video_header_md5sum(video)?;
+
+        // Read existing skip file and compare MD5 hashes.
+        let f = std::fs::File::open(&skip_file)?;
+        let skip_file: SkipFile = serde_json::from_reader(&f).unwrap();
+
+        Ok(skip_file.md5 == md5)
     }
 
-    fn create_skip_file(&self, path: &Path, result: SearchResult) -> Result<()> {
+    fn create_skip_file(&self, video: impl AsRef<Path>, result: SearchResult) -> Result<()> {
         let opening = result
             .opening
             .map(|(start, end)| (start.as_secs_f32(), end.as_secs_f32()));
@@ -300,9 +319,17 @@ impl<P: AsRef<Path>> Comparator<P> {
             return Ok(());
         }
 
-        let skip_file = path.clone().with_extension(super::SKIP_FILE_EXT);
+        let md5 = crate::util::compute_video_header_md5sum(&video)?;
+        let skip_file = video
+            .as_ref()
+            .to_owned()
+            .with_extension(super::SKIP_FILE_EXT);
         let mut skip_file = std::fs::File::create(skip_file)?;
-        let data = serde_json::json!({"opening": opening, "ending": ending});
+        let data = SkipFile {
+            opening,
+            ending,
+            md5,
+        };
         serde_json::to_writer(&mut skip_file, &data)?;
 
         Ok(())
@@ -470,8 +497,14 @@ impl<P: AsRef<Path>> Comparator<P> {
     }
 }
 
-impl<T: AsRef<Path> + Sync> Comparator<T> {
-    pub fn run(&self, analyze: bool, display: bool, use_skip_files: bool, write_skip_files: bool) -> Result<()> {
+impl<P: AsRef<Path> + Sync> Comparator<P> {
+    pub fn run(
+        &self,
+        analyze: bool,
+        display: bool,
+        use_skip_files: bool,
+        write_skip_files: bool,
+    ) -> Result<()> {
         // Build a list of video pairs for actual search. Pairs should only appear once.
         // Given N videos, this will result in: (N * (N-1)) / 2 pairs
         let mut pairs = Vec::new();
@@ -480,9 +513,7 @@ impl<T: AsRef<Path> + Sync> Comparator<T> {
             let v1 = v1.as_ref();
 
             // Skip processing this video if it already has a skip file on disk.
-            if use_skip_files && self.check_for_skip_file(v1) {
-                // TODO(aksiksi): Check MD5 hash of the video against the skip file to handle
-                // the case of a new file with the same name.
+            if use_skip_files && Self::check_skip_file(v1)? {
                 println!("Skipping {} due to existing skip file...", v1.display());
                 processed_videos.insert(v1);
                 continue;
