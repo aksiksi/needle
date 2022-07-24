@@ -13,5 +13,5 @@ pub const DEFAULT_HASH_PERIOD: f32 = 0.3;
 pub const DEFAULT_HASH_DURATION: f32 = 3.0;
 pub const DEFAULT_OPENING_AND_ENDING_TIME_PADDING: f32 = 0.0; // seconds
 
-const FRAME_HASH_DATA_FILE_EXT: &str = "needle.bin";
-const SKIP_FILE_EXT: &str = "needle.skip.json";
+static FRAME_HASH_DATA_FILE_EXT: &str = "needle.bin";
+static SKIP_FILE_EXT: &str = "needle.skip.json";
