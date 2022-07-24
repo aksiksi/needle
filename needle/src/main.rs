@@ -350,15 +350,13 @@ fn main() -> needle::Result<()> {
             let min_opening_duration = Duration::from_secs(min_opening_duration.into());
             let min_ending_duration = Duration::from_secs(min_ending_duration.into());
             let time_padding = Duration::from_secs_f32(time_padding);
-            let comparator = audio::Comparator::from_files(
-                videos,
-                hash_match_threshold,
-                opening_search_percentage,
-                ending_search_percentage,
-                min_opening_duration,
-                min_ending_duration,
-                time_padding,
-            );
+            let comparator = audio::Comparator::from_files(videos)
+                .with_hash_match_threshold(hash_match_threshold as u32)
+                .with_opening_search_percentage(opening_search_percentage)
+                .with_ending_search_percentage(ending_search_percentage)
+                .with_min_opening_duration(min_opening_duration)
+                .with_min_ending_duration(min_ending_duration)
+                .with_time_padding(time_padding);
             comparator.run(analyze, !no_display, !no_skip_files)?;
         }
     }

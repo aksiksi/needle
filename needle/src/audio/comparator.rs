@@ -81,22 +81,40 @@ impl<P: AsRef<Path>> Default for Comparator<P> {
 impl<P: AsRef<Path>> Comparator<P> {
     pub fn from_files(
         videos: impl Into<Vec<P>>,
-        hash_match_threshold: u16,
-        opening_search_percentage: f32,
-        ending_search_percentage: f32,
-        min_opening_duration: Duration,
-        min_ending_duration: Duration,
-        time_padding: Duration,
     ) -> Self {
-        Self {
-            videos: videos.into(),
-            hash_match_threshold: hash_match_threshold as u32,
-            opening_search_percentage,
-            ending_search_percentage,
-            min_opening_duration,
-            min_ending_duration,
-            time_padding,
-        }
+        let mut comparator = Self::default();
+        comparator.videos = videos.into();
+        comparator
+    }
+
+    pub fn with_hash_match_threshold(mut self, hash_match_threshold: u32) -> Self {
+        self.hash_match_threshold = hash_match_threshold;
+        self
+    }
+
+    pub fn with_opening_search_percentage(mut self, opening_search_percentage: f32) -> Self {
+        self.opening_search_percentage = opening_search_percentage;
+        self
+    }
+
+    pub fn with_ending_search_percentage(mut self, ending_search_percentage: f32) -> Self {
+        self.ending_search_percentage = ending_search_percentage;
+        self
+    }
+
+    pub fn with_min_opening_duration(mut self, min_opening_duration: Duration) -> Self {
+        self.min_opening_duration = min_opening_duration;
+        self
+    }
+
+    pub fn with_min_ending_duration(mut self, min_ending_duration: Duration) -> Self {
+        self.min_ending_duration = min_ending_duration;
+        self
+    }
+
+    pub fn with_time_padding(mut self, time_padding: Duration) -> Self {
+        self.time_padding = time_padding;
+        self
     }
 
     #[inline]

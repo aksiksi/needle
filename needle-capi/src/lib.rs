@@ -366,15 +366,13 @@ pub extern "C" fn needle_audio_comparator_new(
     let min_opening_duration = Duration::from_secs(min_opening_duration as u64);
     let min_ending_duration = Duration::from_secs(min_ending_duration as u64);
     let time_padding = Duration::from_secs_f32(time_padding);
-    let comparator = audio::Comparator::from_files(
-        paths,
-        hash_match_threshold,
-        opening_search_percentage,
-        ending_search_percentage,
-        min_opening_duration,
-        min_ending_duration,
-        time_padding,
-    );
+    let comparator = audio::Comparator::from_files(paths)
+        .with_hash_match_threshold(hash_match_threshold as u32)
+        .with_opening_search_percentage(opening_search_percentage)
+        .with_ending_search_percentage(ending_search_percentage)
+        .with_min_opening_duration(min_opening_duration)
+        .with_min_ending_duration(min_ending_duration)
+        .with_time_padding(time_padding);
 
     // SAFETY:
     //
@@ -438,8 +436,7 @@ mod test {
         let path_ptrs: Vec<*const libc::c_char> = paths.iter().map(|s| s.as_ptr()).collect();
         let num_paths = paths.len();
         let mut analyzer = std::ptr::null();
-        let error =
-            needle_audio_analyzer_new_default(path_ptrs.as_ptr(), num_paths, &mut analyzer);
+        let error = needle_audio_analyzer_new_default(path_ptrs.as_ptr(), num_paths, &mut analyzer);
         assert_eq!(error, NeedleError::Ok);
         assert_ne!(analyzer, std::ptr::null());
         needle_audio_analyzer_free(analyzer);
@@ -475,11 +472,8 @@ mod test {
         let path_ptrs: Vec<*const libc::c_char> = paths.iter().map(|s| s.as_ptr()).collect();
         let num_paths = paths.len();
         let mut comparator = std::ptr::null();
-        let error = needle_audio_comparator_new_default(
-            path_ptrs.as_ptr(),
-            num_paths,
-            &mut comparator,
-        );
+        let error =
+            needle_audio_comparator_new_default(path_ptrs.as_ptr(), num_paths, &mut comparator);
         assert_eq!(error, NeedleError::Ok);
         assert_ne!(comparator, std::ptr::null());
         needle_audio_comparator_free(comparator);
