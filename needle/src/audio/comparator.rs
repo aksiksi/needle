@@ -51,7 +51,8 @@ struct SearchResult {
     ending: Option<(Duration, Duration)>,
 }
 
-/// Compares two audio streams.
+/// Compares two or more video files using either existing [FrameHashes] or by running an
+/// [Analyzer] in-place.
 #[derive(Debug)]
 pub struct Comparator<P: AsRef<Path>> {
     videos: Vec<P>,

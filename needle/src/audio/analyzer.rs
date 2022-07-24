@@ -13,6 +13,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Error, Result};
 
+/// Represents frame hash data for a single video file. This is the result of running
+/// an [Analyzer] on a video file.
+///
+/// The struct contains the raw data as well as metadata about how the data was generated. The
+/// original video size is included to allow for primitive duplicate checks when deciding whether
+/// or not to skip analyzing a file.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct FrameHashes {
     pub hash_period: f32,
@@ -24,7 +30,7 @@ pub struct FrameHashes {
     pub video_size: usize,
 }
 
-/// Wraps the `FFmpeg` audio decoder.
+/// Thin wrapper around the native `FFmpeg` audio decoder.
 struct Decoder {
     decoder: ffmpeg_next::codec::decoder::Audio,
 }
@@ -61,6 +67,37 @@ impl Decoder {
     }
 }
 
+/// Analyzes one or more videos and converts them into [FrameHashes].
+///
+/// If `threaded_decoding` is set to `true`, video files will be distributed across multiple threads
+/// based on the number of CPUs available. If `force` is set, any existing frame hash data on disk
+/// will be **ignored**.
+///
+/// At a high-level, the analyzer does the following for a given video:
+///
+/// 1. Extracts the most suitable audio stream
+/// 2. Decodes the audio frame-by-frame and resamples it for fingerprinting
+/// 3. Builds a fingerprint (or hash) based on the provided `hash_duration`
+/// 4. Returns a [FrameHashes] instance that contains the raw data and (optionally) writes it to disk
+///    alongside the video
+///
+/// # Example
+///
+/// ```
+/// use std::path::PathBuf;
+/// use needle::audio::Analyzer;
+/// # fn get_sample_paths() -> Vec<PathBuf> {
+/// #     let resources = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources");
+/// #     vec![
+/// #         resources.join("sample-5s.mp4"),
+/// #         resources.join("sample-shifted-4s.mp4"),
+/// #     ]
+/// # }
+///
+/// let video_paths: Vec<PathBuf> = get_sample_paths();
+/// let analyzer = Analyzer::from_files(video_paths, false, false);
+/// let frame_hashes = analyzer.run(1.0, 3.0, false).unwrap();
+/// ```
 #[derive(Debug)]
 pub struct Analyzer<P: AsRef<Path>> {
     paths: Vec<P>,

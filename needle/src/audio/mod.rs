@@ -1,7 +1,7 @@
 mod analyzer;
 mod comparator;
 
-pub use analyzer::Analyzer;
+pub use analyzer::{Analyzer, FrameHashes};
 pub use comparator::Comparator;
 
 pub const DEFAULT_HASH_MATCH_THRESHOLD: u16 = 15;
