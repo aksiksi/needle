@@ -27,3 +27,8 @@ static = ["needle-rs/static"]
 
 [build-dependencies]
 cbindgen = "0.20.0"
+
+[profile.release]
+lto = "thin"
+strip = "debuginfo"
+
