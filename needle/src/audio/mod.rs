@@ -2,7 +2,7 @@ mod analyzer;
 mod comparator;
 
 pub use analyzer::{Analyzer, FrameHashes};
-pub use comparator::Comparator;
+pub use comparator::{Comparator, SearchResult};
 
 pub const DEFAULT_HASH_MATCH_THRESHOLD: u16 = 15;
 pub const DEFAULT_OPENING_SEARCH_PERCENTAGE: f32 = 0.33;

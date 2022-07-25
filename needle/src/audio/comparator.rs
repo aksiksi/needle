@@ -2,7 +2,7 @@ extern crate rayon;
 
 use std::collections::{BTreeMap, BinaryHeap, HashSet};
 use std::fmt::Display;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use chromaprint_rust as chromaprint;
@@ -53,7 +53,7 @@ struct OpeningAndEndingInfo {
 }
 
 #[derive(Copy, Clone, Debug, Default)]
-struct SearchResult {
+pub struct SearchResult {
     opening: Option<(Duration, Duration)>,
     ending: Option<(Duration, Duration)>,
 }
@@ -504,7 +504,7 @@ impl<P: AsRef<Path> + Sync> Comparator<P> {
         display: bool,
         use_skip_files: bool,
         write_skip_files: bool,
-    ) -> Result<()> {
+    ) -> Result<BTreeMap<PathBuf, SearchResult>> {
         // Build a list of video pairs for actual search. Pairs should only appear once.
         // Given N videos, this will result in: (N * (N-1)) / 2 pairs
         let mut pairs = Vec::new();
@@ -570,6 +570,8 @@ impl<P: AsRef<Path> + Sync> Comparator<P> {
             }
         }
 
+        let mut match_map = BTreeMap::new();
+
         // For each path, find the best opening and ending candidate among the list
         // of other videos. If required, display the result and write a skip file to disk.
         for (path, matches) in info_map {
@@ -585,8 +587,31 @@ impl<P: AsRef<Path> + Sync> Comparator<P> {
             if write_skip_files {
                 self.create_skip_file(path, result)?;
             }
+
+            match_map.insert(path.to_owned(), result.clone());
         }
 
-        Ok(())
+        Ok(match_map)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn get_sample_paths() -> Vec<PathBuf> {
+        let resources = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources");
+        vec![
+            resources.join("sample-5s.mp4"),
+            resources.join("sample-shifted-4s.mp4"),
+        ]
+    }
+
+    #[test]
+    fn test_comparator() {
+        let paths = get_sample_paths();
+        let comparator = Comparator::from_files(paths);
+        let data = comparator.run(true, true, false, false).unwrap();
+        assert_eq!(data.len(), 2);
     }
 }
