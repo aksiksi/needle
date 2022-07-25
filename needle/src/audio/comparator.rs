@@ -52,6 +52,7 @@ struct OpeningAndEndingInfo {
     dst_endings: Vec<ComparatorHeapEntry>,
 }
 
+/// Represents a single result for a video file. This is output by [Comparator::run].
 #[derive(Copy, Clone, Debug, Default)]
 pub struct SearchResult {
     opening: Option<(Duration, Duration)>,
@@ -86,37 +87,49 @@ impl<P: AsRef<Path>> Default for Comparator<P> {
 }
 
 impl<P: AsRef<Path>> Comparator<P> {
+    /// Constructs a [Comparator] from a list of video paths.
     pub fn from_files(videos: impl Into<Vec<P>>) -> Self {
         let mut comparator = Self::default();
         comparator.videos = videos.into();
         comparator
     }
 
+    /// Returns the video paths used by this comparator.
+    pub fn videos(&self) -> &[P] {
+        &self.videos
+    }
+
+    /// Returns a new [Comparator] with the provided `hash_match_threshold`.
     pub fn with_hash_match_threshold(mut self, hash_match_threshold: u32) -> Self {
         self.hash_match_threshold = hash_match_threshold;
         self
     }
 
+    /// Returns a new [Comparator] with the provided `opening_search_percentage`.
     pub fn with_opening_search_percentage(mut self, opening_search_percentage: f32) -> Self {
         self.opening_search_percentage = opening_search_percentage;
         self
     }
 
+    /// Returns a new [Comparator] with the provided `ending_search_percentage`.
     pub fn with_ending_search_percentage(mut self, ending_search_percentage: f32) -> Self {
         self.ending_search_percentage = ending_search_percentage;
         self
     }
 
+    /// Returns a new [Comparator] with the provided `min_opening_duration`.
     pub fn with_min_opening_duration(mut self, min_opening_duration: Duration) -> Self {
         self.min_opening_duration = min_opening_duration;
         self
     }
 
+    /// Returns a new [Comparator] with the provided `min_ending_duration`.
     pub fn with_min_ending_duration(mut self, min_ending_duration: Duration) -> Self {
         self.min_ending_duration = min_ending_duration;
         self
     }
 
+    /// Returns a new [Comparator] with the provided `time_padding`.
     pub fn with_time_padding(mut self, time_padding: Duration) -> Self {
         self.time_padding = time_padding;
         self
@@ -498,6 +511,12 @@ impl<P: AsRef<Path>> Comparator<P> {
 }
 
 impl<P: AsRef<Path> + Sync> Comparator<P> {
+    /// Runs the comparator.
+    ///
+    /// If `analyze` is set to true, an `Analyzer` will be built for each video file and run in-place.
+    /// If `display` is set, the final results will be printed to stdout. If `use_skip_files` is set,
+    /// if a skip file already exists for a video, the video will be skipped during this run. If `write_skip_files`
+    /// is set, a skip file will be written to disk once the comparator is completed.
     pub fn run(
         &self,
         analyze: bool,

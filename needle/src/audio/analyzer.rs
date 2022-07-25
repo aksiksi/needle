@@ -21,13 +21,13 @@ use crate::{Error, Result};
 /// or not to skip analyzing a file.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct FrameHashes {
-    pub hash_period: f32,
-    pub hash_duration: f32,
-    pub data: Vec<(u32, Duration)>,
+    pub(crate) hash_period: f32,
+    pub(crate) hash_duration: f32,
+    pub(crate) data: Vec<(u32, Duration)>,
     /// Size of the video, in bytes. This is used as a primitive hash
     /// to detect if the video file has changed since this data was
     /// generated.
-    pub video_size: usize,
+    pub(crate) video_size: usize,
 }
 
 /// Thin wrapper around the native `FFmpeg` audio decoder.
@@ -116,6 +116,7 @@ impl<P: AsRef<Path>> Default for Analyzer<P> {
 }
 
 impl<P: AsRef<Path>> Analyzer<P> {
+    /// Constructs a new [Analyzer] from a list of video paths.
     pub fn from_files(videos: impl Into<Vec<P>>, threaded_decoding: bool, force: bool) -> Self {
         Self {
             videos: videos.into(),
@@ -124,6 +125,7 @@ impl<P: AsRef<Path>> Analyzer<P> {
         }
     }
 
+    /// Returns the video paths used by this analyzer.
     pub fn videos(&self) -> &[P] {
         &self.videos
     }
@@ -306,6 +308,7 @@ impl<P: AsRef<Path>> Analyzer<P> {
 }
 
 impl<P: AsRef<Path> + Sync> Analyzer<P> {
+    /// Runs this analyzer.
     pub fn run(
         &self,
         hash_period: f32,

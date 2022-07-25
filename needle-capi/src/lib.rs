@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 //! A C library that wraps [needle].
 //!
 //! # Example
@@ -51,18 +53,29 @@ use std::time::Duration;
 
 use needle::audio;
 
+/// C error enum that extends [needle::Error].
 #[repr(C)]
 #[derive(Debug, PartialEq)]
 pub enum NeedleError {
+    /// No error.
     Ok = 0,
+    /// Invalid UTF-8 string.
     InvalidUtf8String,
+    /// One or more pointer arguments passed into the function were NULL.
     NullArgument,
+    /// Frame hash data was not found on disk.
     FrameHashDataNotFound,
+    /// Frame hash data on disk is not valid.
     InvalidFrameHashData,
+    /// Comparator needs at least two video paths.
     ComparatorMinimumPaths,
+    /// Analyzer hash period specified was invalid.
     AnalyzerInvalidHashPeriod,
+    /// Analyzer hash duration specified was too short.
     AnalyzerInvalidHashDuration,
+    /// Wraps a [std::io::Error].
     IOError,
+    /// Unknown error.
     Unknown,
 }
 
@@ -229,6 +242,7 @@ pub extern "C" fn needle_audio_analyzer_new(
     NeedleError::Ok
 }
 
+/// Free the provided [NeedleAudioAnalyzer].
 #[no_mangle]
 pub extern "C" fn needle_audio_analyzer_free(analyzer: *const NeedleAudioAnalyzer) {
     if analyzer.is_null() {
@@ -239,6 +253,7 @@ pub extern "C" fn needle_audio_analyzer_free(analyzer: *const NeedleAudioAnalyze
     drop(analyzer);
 }
 
+/// Print the video paths tracked by this [NeedleAudioAnalyzer].
 #[no_mangle]
 pub extern "C" fn needle_audio_analyzer_print_paths(analyzer: *const NeedleAudioAnalyzer) {
     if analyzer.is_null() {
@@ -253,6 +268,7 @@ pub extern "C" fn needle_audio_analyzer_print_paths(analyzer: *const NeedleAudio
     }
 }
 
+/// Run the [NeedleAudioAnalyzer].
 #[no_mangle]
 pub extern "C" fn needle_audio_analyzer_run(
     analyzer: *const NeedleAudioAnalyzer,
@@ -388,6 +404,7 @@ pub extern "C" fn needle_audio_comparator_new(
     NeedleError::Ok
 }
 
+/// Free the provided [NeedleAudioComparator].
 #[no_mangle]
 pub extern "C" fn needle_audio_comparator_free(comparator: *const NeedleAudioComparator) {
     if comparator.is_null() {
@@ -398,6 +415,7 @@ pub extern "C" fn needle_audio_comparator_free(comparator: *const NeedleAudioCom
     drop(comparator);
 }
 
+/// Run the [NeedleAudioComparator].
 #[no_mangle]
 pub extern "C" fn needle_audio_comparator_run(
     comparator: *const NeedleAudioComparator,

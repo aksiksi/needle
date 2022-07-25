@@ -6,16 +6,49 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+/**
+ * C error enum that extends [needle::Error].
+ */
 typedef enum NeedleError {
+  /**
+   * No error.
+   */
   NeedleError_Ok = 0,
+  /**
+   * Invalid UTF-8 string.
+   */
   NeedleError_InvalidUtf8String,
+  /**
+   * One or more pointer arguments passed into the function were NULL.
+   */
   NeedleError_NullArgument,
+  /**
+   * Frame hash data was not found on disk.
+   */
   NeedleError_FrameHashDataNotFound,
+  /**
+   * Frame hash data on disk is not valid.
+   */
   NeedleError_InvalidFrameHashData,
+  /**
+   * Comparator needs at least two video paths.
+   */
   NeedleError_ComparatorMinimumPaths,
+  /**
+   * Analyzer hash period specified was invalid.
+   */
   NeedleError_AnalyzerInvalidHashPeriod,
+  /**
+   * Analyzer hash duration specified was too short.
+   */
   NeedleError_AnalyzerInvalidHashDuration,
+  /**
+   * Wraps a [std::io::Error].
+   */
   NeedleError_IOError,
+  /**
+   * Unknown error.
+   */
   NeedleError_Unknown,
 } NeedleError;
 
@@ -115,10 +148,19 @@ enum NeedleError needle_audio_analyzer_new(const char *const *paths,
                                            bool force,
                                            const struct NeedleAudioAnalyzer **output);
 
+/**
+ * Free the provided [NeedleAudioAnalyzer].
+ */
 void needle_audio_analyzer_free(const struct NeedleAudioAnalyzer *analyzer);
 
+/**
+ * Print the video paths tracked by this [NeedleAudioAnalyzer].
+ */
 void needle_audio_analyzer_print_paths(const struct NeedleAudioAnalyzer *analyzer);
 
+/**
+ * Run the [NeedleAudioAnalyzer].
+ */
 enum NeedleError needle_audio_analyzer_run(const struct NeedleAudioAnalyzer *analyzer,
                                            float hash_period,
                                            float hash_duration,
@@ -146,8 +188,14 @@ enum NeedleError needle_audio_comparator_new(const char *const *paths,
                                              float time_padding,
                                              const struct NeedleAudioComparator **output);
 
+/**
+ * Free the provided [NeedleAudioComparator].
+ */
 void needle_audio_comparator_free(const struct NeedleAudioComparator *comparator);
 
+/**
+ * Run the [NeedleAudioComparator].
+ */
 enum NeedleError needle_audio_comparator_run(const struct NeedleAudioComparator *comparator,
                                              bool analyze,
                                              bool display,
