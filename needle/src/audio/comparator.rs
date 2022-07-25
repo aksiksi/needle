@@ -238,13 +238,13 @@ impl<P: AsRef<Path>> Comparator<P> {
 
         // Figure out the duration limits for opening and endings.
         let src_opening_search_idx =
-            (src_hash_data.len() as f32 * self.opening_search_percentage) as usize;
+            ((src_hash_data.len() - 1) as f32 * self.opening_search_percentage) as usize;
         let src_ending_search_idx =
-            (src_hash_data.len() as f32 * (1.0 - self.ending_search_percentage)) as usize;
+            ((src_hash_data.len() - 1) as f32 * (1.0 - self.ending_search_percentage)) as usize;
         let dst_opening_search_idx =
-            (dst_hash_data.len() as f32 * self.opening_search_percentage) as usize;
+            ((dst_hash_data.len() - 1) as f32 * self.opening_search_percentage) as usize;
         let dst_ending_search_idx =
-            (dst_hash_data.len() as f32 * (1.0 - self.ending_search_percentage)) as usize;
+            ((dst_hash_data.len() - 1) as f32 * (1.0 - self.ending_search_percentage)) as usize;
         let src_max_opening_time = src_hash_data[src_opening_search_idx].1;
         let src_min_ending_time = src_hash_data[src_ending_search_idx].1;
         let dst_max_opening_time = dst_hash_data[dst_opening_search_idx].1;
