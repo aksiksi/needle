@@ -58,7 +58,7 @@ jobs:
       - name: Build release version
         run: cargo build -v --release
       - name: Compress binary
-        run: cd target/release && tar cvzf $TAG_NAME-linux-amd64.tar.gz needle
+        run: cd target/release && tar cvzf needle-$TAG_NAME-linux-amd64.tar.gz needle
       - name: Upload binary to the release
         uses: softprops/action-gh-release@v1
         with:
@@ -78,7 +78,7 @@ jobs:
       - name: Build release version
         run: cargo build -v --release
       - name: Compress binary
-        run: cd target/release && tar cvzf $TAG_NAME-macos-amd64.tar.gz needle
+        run: cd target/release && tar cvzf needle-$TAG_NAME-macos-amd64.tar.gz needle
       - name: Upload binary to the release
         uses: softprops/action-gh-release@v1
         with:
@@ -120,7 +120,7 @@ jobs:
       - name: Build release version
         run: cargo build -v --release --features static
       - name: Compress binary (using Powershell)
-        run: Compress-Archive -Path "$env:GITHUB_WORKSPACE\needle\target\release\needle.exe" -DestinationPath "$env:GITHUB_WORKSPACE\$env:TAG_NAME-windows-amd64.zip"
+        run: Compress-Archive -Path "$env:GITHUB_WORKSPACE\needle\target\release\needle.exe" -DestinationPath "$env:GITHUB_WORKSPACE\needle-$env:TAG_NAME-windows-amd64.zip"
         shell: pwsh
       - name: Upload binary to the release
         uses: softprops/action-gh-release@v1
@@ -137,6 +137,14 @@ jobs:
     if: needs.release-please.outputs.release_created
     steps:
       - uses: actions/checkout@v3
+      - name: Install dependencies
+        run: |
+          sudo apt install \
+            libfftw3-dev \
+            libavutil-dev \
+            libavformat-dev \
+            libswresample-dev \
+            libavcodec-dev
       - name: Publish needle-rs to crates.io
         run: cargo publish
         env:
