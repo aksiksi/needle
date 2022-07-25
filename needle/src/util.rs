@@ -38,3 +38,21 @@ pub(crate) fn compute_header_md5sum(video: impl AsRef<Path>) -> crate::Result<St
     let hash = format!("{:x}", md5::compute(&buf));
     Ok(hash)
 }
+
+/// Returns the underlying FFmpeg version integer used by needle.
+pub fn ffmpeg_version() -> u32 {
+    ffmpeg_next::util::version()
+}
+
+/// Returns the underlying FFmpeg version string used by needle.
+pub fn ffmpeg_version_string() -> String {
+    let version_int = ffmpeg_version();
+
+    // Reference: https://github.com/FFmpeg/FFmpeg/blob/130d19bf2044ac76372d1b97ab87ab283c8b37f8/libavutil/version.h#L64
+    format!(
+        "{}.{}.{}",
+        version_int >> 16, // MAJOR
+        (version_int & 0x00FF00) >> 8, // MINOR
+        version_int & 0xFF // MICRO
+    )
+}

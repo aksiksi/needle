@@ -248,7 +248,7 @@ pub extern "C" fn needle_audio_analyzer_print_paths(analyzer: *const NeedleAudio
     // SAFETY: We assume that the user is passing in a _valid_ pointer. Otherwise, all bets are off.
     let analyzer = unsafe { analyzer.as_ref().unwrap() };
 
-    for path in analyzer.0.paths() {
+    for path in analyzer.0.videos() {
         println!("{}", path.display());
     }
 }

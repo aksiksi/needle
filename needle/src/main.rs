@@ -17,6 +17,11 @@ enum Mode {
 #[derive(Debug, Subcommand)]
 enum Commands {
     #[clap(
+        after_help = "Displays info about needle and its dependencies."
+    )]
+    Info,
+
+    #[clap(
         arg_required_else_help = true,
         after_help = "Decode one or more video files into a list of frame hashes. The frame hash data is written to disk alongside each analyzed video file, and is used by the 'search' command."
     )]
@@ -64,6 +69,7 @@ enum Commands {
         )]
         force: bool,
     },
+
     #[clap(
         arg_required_else_help = true,
         after_help = "Search for openings and endings among a group of videos using frame hash data. Hash data can either be pre-computed and stored alongside video files using the 'analyze' command, or generated as part of the search by specifying the --analyze flag. Note that precomputation saves a ton of time."
@@ -187,6 +193,7 @@ impl Cli {
     fn validate(&self) {
         let mut cmd = Cli::command();
         match self.command {
+            Commands::Info => (),
             Commands::Analyze {
                 hash_period,
                 hash_duration,
@@ -238,16 +245,9 @@ impl Cli {
         }
     }
 
-    fn videos(&self) -> &Vec<PathBuf> {
-        match self.command {
-            Commands::Analyze { ref paths, .. } => paths,
-            Commands::Search { ref paths, .. } => paths,
-        }
-    }
-
-    fn find_video_files(&self) -> Vec<PathBuf> {
+    fn find_video_files(&self, paths: &[PathBuf]) -> Vec<PathBuf> {
         // Validate all paths.
-        for path in self.videos() {
+        for path in paths {
             if !path.exists() {
                 let mut cmd = Cli::command();
                 cmd.error(
@@ -262,7 +262,7 @@ impl Cli {
 
         // Find valid video files.
         let mut valid_video_files = Vec::new();
-        for path in self.videos() {
+        for path in paths {
             if path.is_dir() {
                 valid_video_files.extend(
                     std::fs::read_dir(path)
@@ -275,8 +275,8 @@ impl Cli {
                             self.disable_video_validation
                                 || needle::util::is_valid_video_file(
                                     p,
-                                    !cfg!(feature = "video"),
                                     full_validation,
+                                    !cfg!(feature = "video"),
                                 )
                         })
                         .collect::<Vec<_>>(),
@@ -285,8 +285,8 @@ impl Cli {
                 if self.disable_video_validation
                     || needle::util::is_valid_video_file(
                         path,
-                        !cfg!(feature = "video"),
                         full_validation,
+                        !cfg!(feature = "video"),
                     )
                 {
                     valid_video_files.push(path.clone());
@@ -309,18 +309,18 @@ fn main() -> needle::Result<()> {
 
     let args = Cli::parse();
     args.validate();
-    let videos = args.find_video_files();
 
     match args.command {
         Commands::Analyze {
-            mode,
+            ref mode,
             hash_period,
             hash_duration,
             threaded_decoding,
             force,
-            ..
+            ref paths,
         } => match mode {
             Mode::Audio => {
+                let videos = args.find_video_files(paths);
                 let analyzer = audio::Analyzer::from_files(videos, threaded_decoding, force);
                 analyzer.run(hash_period, hash_duration, true)?;
             }
@@ -342,19 +342,20 @@ fn main() -> needle::Result<()> {
             ignore_skip_files,
             write_skip_files,
             time_padding,
-            ..
+            ref paths,
         } => {
-            if videos.len() < 2 {
+            if paths.len() < 2 {
                 let mut cmd = Cli::command();
                 cmd.error(
                     ErrorKind::InvalidValue,
                     format!(
                     "need at least 2 valid video files, but only found {} in provided video paths",
-                    videos.len()
+                    paths.len()
                 ),
                 )
                 .exit();
             }
+            let videos = args.find_video_files(paths);
             let min_opening_duration = Duration::from_secs(min_opening_duration.into());
             let min_ending_duration = Duration::from_secs(min_ending_duration.into());
             let time_padding = Duration::from_secs_f32(time_padding);
@@ -366,6 +367,9 @@ fn main() -> needle::Result<()> {
                 .with_min_ending_duration(min_ending_duration)
                 .with_time_padding(time_padding);
             comparator.run(analyze, !no_display, !ignore_skip_files, write_skip_files)?;
+        }
+        Commands::Info => {
+            println!("FFmpeg version: {}", needle::util::ffmpeg_version_string());
         }
     }
 
