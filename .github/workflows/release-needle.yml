@@ -18,8 +18,9 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     outputs:
-      tag_name: ${{ steps.release.outputs.tag_name }}
-      release_created: ${{ steps.release.outputs.release_created }}
+      # NOTE: No idea why release-please is running in "manifest" mode, but it is...
+      tag_name: ${{ steps['release']['outputs']['needle--tag_name'] }}
+      release_created: ${{ steps['release']['outputs']['needle--release_created'] }}
     steps:
       # Copied from: https://github.com/andrey-yantsen/plex-api.rs/blob/main/.github/workflows/release.yml#L18
       - uses: google-github-actions/release-please-action@v3
