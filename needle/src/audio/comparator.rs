@@ -299,7 +299,7 @@ impl<P: AsRef<Path>> Comparator<P> {
         }
 
         // Compute MD5 hash of the video header.
-        let md5 = crate::util::compute_video_header_md5sum(video)?;
+        let md5 = crate::util::compute_header_md5sum(video)?;
 
         // Read existing skip file and compare MD5 hashes.
         let f = std::fs::File::open(&skip_file)?;
@@ -319,7 +319,7 @@ impl<P: AsRef<Path>> Comparator<P> {
             return Ok(());
         }
 
-        let md5 = crate::util::compute_video_header_md5sum(&video)?;
+        let md5 = crate::util::compute_header_md5sum(&video)?;
         let skip_file = video
             .as_ref()
             .to_owned()

@@ -31,7 +31,7 @@ pub fn is_valid_video_file(path: impl AsRef<Path>, audio: bool, full: bool) -> b
     }
 }
 
-pub(crate) fn compute_video_header_md5sum(video: impl AsRef<Path>) -> crate::Result<String> {
+pub(crate) fn compute_header_md5sum(video: impl AsRef<Path>) -> crate::Result<String> {
     let mut buf = [0u8; 8192];
     let mut f = std::fs::File::open(video.as_ref())?;
     f.read_exact(&mut buf)?;
