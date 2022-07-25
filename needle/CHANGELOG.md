@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.1.4](https://github.com/aksiksi/needle/compare/v0.1.3...v0.1.4) (2022-07-25)
+
+
+### Features
+
+* **comparator:** Display info sorted by video filename ([c045ed4](https://github.com/aksiksi/needle/commit/c045ed44a57b167f479257db1376ae35955073f7))
+* **comparator:** Return results from run method ([005f4c4](https://github.com/aksiksi/needle/commit/005f4c45562258d1db67c91b07e75c819222efae))
+* **needle:** Info subcommand to display FFmpeg version ([791b02e](https://github.com/aksiksi/needle/commit/791b02ee2d0838a00d6da423513430ae15c3692b))
+
+
+### Bug Fixes
+
+* **comparator:** Adjust opening and ending percentage index ([52692fe](https://github.com/aksiksi/needle/commit/52692fe8ff54fa49fc811a4ba3dc8a0e4dd06e1f))
+* Use correct license in Cargo.toml ([7b95d0e](https://github.com/aksiksi/needle/commit/7b95d0e5cf3c9429e28c42cf1dd48b4b9a75b897))
+
+
+### Miscellaneous
+
+* Add missing docs in both crates ([c9283aa](https://github.com/aksiksi/needle/commit/c9283aa38701a6f2d5e113242c231d651c66603c))
+* Docs for util module ([d7b7754](https://github.com/aksiksi/needle/commit/d7b775452bd6cb2bc8c792c9ba4ff5111fd43972))
+* Rename compute_video_header_md5sum ([76cbfb7](https://github.com/aksiksi/needle/commit/76cbfb7822bd80cfeee864d8c97c6c488bf6d1e8))
+
 ## [0.1.3](https://github.com/aksiksi/needle/compare/v0.1.2...v0.1.3) (2022-07-25)
 
 
