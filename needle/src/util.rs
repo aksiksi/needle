@@ -2,13 +2,22 @@ use std::io::Read;
 use std::path::Path;
 use std::time::Duration;
 
+/// Formats the given [Duration] as "MM:SSs"
 pub fn format_time(t: Duration) -> String {
     let minutes = t.as_secs() / 60;
     let seconds = t.as_secs() % 60;
     format!("{:02}:{:02}s", minutes, seconds)
 }
 
-pub fn is_valid_video_file(path: impl AsRef<Path>, audio: bool, full: bool) -> bool {
+/// Checks if the given path points to a valid video file.
+///
+/// If `full` is set to **false**, only the file header will be checked. This is a very cheap
+/// operation, but it does not guarantee validity. If set to **true**, FFmpeg will be used to
+/// check the video contents - note that this is more expensive, but much more accurate.
+///
+/// If `audio` is set to true, this function will ensure that the video contains *at least* one audio stream.
+/// This flag is only used when `full` is set to **true**.
+pub fn is_valid_video_file(path: impl AsRef<Path>, full: bool, audio: bool) -> bool {
     if !full {
         let mut buf = [0u8; 8192];
         let mut f = std::fs::File::open(path.as_ref()).unwrap();
