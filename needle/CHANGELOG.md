@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/aksiksi/needle/compare/v0.1.3...v0.1.4) (2022-07-25)
+
+
+### Miscellaneous
+
+* Symlink README and LICENSE ([1b10011](https://github.com/aksiksi/needle/commit/1b10011b62a3b333d6529243dfd6ac3531e61012))
+
 ## [0.1.3](https://github.com/aksiksi/needle/compare/v0.1.2...v0.1.3) (2022-07-25)
 
 
