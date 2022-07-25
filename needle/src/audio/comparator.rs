@@ -1,6 +1,6 @@
 extern crate rayon;
 
-use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::collections::{BTreeMap, BinaryHeap, HashSet};
 use std::fmt::Display;
 use std::path::Path;
 use std::time::Duration;
@@ -556,7 +556,7 @@ impl<P: AsRef<Path> + Sync> Comparator<P> {
         // This map tracks the generated info struct for each video path. A bool is included
         // to allow determining whether the path is a source (true) or dest (false) in the info
         // struct.
-        let mut info_map: HashMap<&Path, Vec<(&OpeningAndEndingInfo, bool)>> = HashMap::new();
+        let mut info_map: BTreeMap<&Path, Vec<(&OpeningAndEndingInfo, bool)>> = BTreeMap::new();
         for (src_path, dst_path, info) in &data {
             if let Some(v) = info_map.get_mut(*src_path) {
                 v.push((info, true));
