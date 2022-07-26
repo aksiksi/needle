@@ -295,7 +295,8 @@ fn main() -> needle::Result<()> {
             time_padding,
             ref paths,
         } => {
-            if paths.len() < 2 {
+            let videos = args.find_video_files(paths);
+            if videos.len() < 2 {
                 let mut cmd = Cli::command();
                 cmd.error(
                     ErrorKind::InvalidValue,
@@ -306,7 +307,6 @@ fn main() -> needle::Result<()> {
                 )
                 .exit();
             }
-            let videos = args.find_video_files(paths);
             let min_opening_duration = Duration::from_secs(min_opening_duration.into());
             let min_ending_duration = Duration::from_secs(min_ending_duration.into());
             let time_padding = Duration::from_secs_f32(time_padding);
