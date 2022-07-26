@@ -372,15 +372,10 @@ impl<P: AsRef<Path>> Comparator<P> {
         }
     }
 
-    fn search(
-        &self,
-        src_path: &Path,
-        dst_path: &Path,
-        analyze: bool,
-    ) -> Result<OpeningAndEndingInfo> {
+    fn search(&self, src_path: &Path, dst_path: &Path) -> Result<OpeningAndEndingInfo> {
         tracing::debug!("started audio comparator");
 
-        let (src_frame_hashes, dst_frame_hashes) = if !analyze {
+        let (src_frame_hashes, dst_frame_hashes) = {
             // Make sure frame data files exist for these videos.
             let src_data_path = src_path
                 .clone()
@@ -410,27 +405,6 @@ impl<P: AsRef<Path>> Comparator<P> {
                 ));
 
             tracing::debug!("loaded hash frame data from disk");
-
-            (src_frame_hashes, dst_frame_hashes)
-        } else {
-            // Otherwise, compute the hash data now by analyzing the video files.
-            tracing::debug!("starting in-place video analysis...");
-
-            let src_analyzer = super::Analyzer::<&Path>::default();
-            let dst_analyzer = super::Analyzer::<&Path>::default();
-            let src_frame_hashes = src_analyzer.run_single(
-                &src_path,
-                super::DEFAULT_HASH_PERIOD,
-                super::DEFAULT_HASH_DURATION,
-                false,
-            )?;
-            let dst_frame_hashes = dst_analyzer.run_single(
-                &dst_path,
-                super::DEFAULT_HASH_PERIOD,
-                super::DEFAULT_HASH_DURATION,
-                false,
-            )?;
-            tracing::debug!("completed analysis for src");
 
             (src_frame_hashes, dst_frame_hashes)
         };
@@ -528,14 +502,29 @@ impl<P: AsRef<Path> + Sync> Comparator<P> {
         // Given N videos, this will result in: (N * (N-1)) / 2 pairs
         let mut pairs = Vec::new();
         let mut processed_videos = HashSet::new();
+
         for (i, v1) in self.videos.iter().enumerate() {
             let v1 = v1.as_ref();
 
             // Skip processing this video if it already has a skip file on disk.
+            // TODO(aksiksi): This needs to be fixed.
             if use_skip_files && Self::check_skip_file(v1)? {
                 println!("Skipping {} due to existing skip file...", v1.display());
                 processed_videos.insert(v1);
                 continue;
+            }
+
+            // If analysis is required, run the analysis in-place even if data already exists
+            if analyze {
+                tracing::debug!("starting in-place video analysis for {}...", v1.display());
+                let analyzer = super::Analyzer::<P>::default().with_force(true);
+                analyzer.run_single(
+                    v1,
+                    super::DEFAULT_HASH_PERIOD,
+                    super::DEFAULT_HASH_DURATION,
+                    false,
+                )?;
+                tracing::debug!("completed in-place video analysis for {}", v1.display());
             }
 
             for (j, v2) in self.videos.iter().enumerate() {
@@ -556,7 +545,7 @@ impl<P: AsRef<Path> + Sync> Comparator<P> {
                 (
                     *src_path,
                     *dst_path,
-                    self.search(src_path, dst_path, analyze).unwrap(),
+                    self.search(src_path, dst_path).unwrap(),
                 )
             })
             .collect::<Vec<_>>();
