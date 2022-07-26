@@ -30,6 +30,27 @@ pub struct FrameHashes {
     pub(crate) video_size: usize,
 }
 
+impl FrameHashes {
+    /// Load from a path.
+    pub fn from_path(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
+        if !path.exists() {
+            return Err(Error::FrameHashDataNotFound(path.to_owned()).into());
+        }
+        let f = std::fs::File::open(path)?;
+        Ok(bincode::deserialize_from(&f)?)
+    }
+
+    /// Load frame hash data stored alongside the given video.
+    pub fn from_video(video: impl AsRef<Path>) -> Result<Self> {
+        let path = video
+            .as_ref()
+            .to_owned()
+            .with_extension(super::FRAME_HASH_DATA_FILE_EXT);
+        Self::from_path(&path)
+    }
+}
+
 /// Thin wrapper around the native `FFmpeg` audio decoder.
 struct Decoder {
     decoder: ffmpeg_next::codec::decoder::Audio,

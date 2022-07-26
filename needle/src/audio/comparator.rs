@@ -1,6 +1,6 @@
 extern crate rayon;
 
-use std::collections::{BTreeMap, BinaryHeap, HashSet};
+use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
 use std::fmt::Display;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -10,7 +10,9 @@ use chromaprint_rust as chromaprint;
 use rayon::prelude::*;
 
 use crate::util;
-use crate::{Error, Result};
+use crate::Result;
+
+use super::FrameHashes;
 
 #[derive(serde::Deserialize, serde::Serialize)]
 struct SkipFile {
@@ -372,45 +374,27 @@ impl<P: AsRef<Path>> Comparator<P> {
         }
     }
 
-    fn search(&self, src_path: &Path, dst_path: &Path) -> Result<OpeningAndEndingInfo> {
+    fn search(
+        &self,
+        src_path: &Path,
+        dst_path: &Path,
+        frame_hash_map: &HashMap<&Path, FrameHashes>,
+    ) -> Result<OpeningAndEndingInfo> {
         tracing::debug!("started audio comparator");
 
         let (src_frame_hashes, dst_frame_hashes) = {
-            // Make sure frame data files exist for these videos.
-            let src_data_path = src_path
-                .clone()
-                .with_extension(super::FRAME_HASH_DATA_FILE_EXT);
-            let dst_data_path = dst_path
-                .clone()
-                .with_extension(super::FRAME_HASH_DATA_FILE_EXT);
-            if !src_data_path.exists() {
-                return Err(Error::FrameHashDataNotFound(src_data_path).into());
-            }
-            if !dst_data_path.exists() {
-                return Err(Error::FrameHashDataNotFound(dst_data_path).into());
-            }
-
-            // Load frame hash data from disk.
-            let src_file = std::fs::File::open(&src_data_path)?;
-            let dst_file = std::fs::File::open(&dst_data_path)?;
-            let src_frame_hashes: super::analyzer::FrameHashes =
-                bincode::deserialize_from(&src_file).expect(&format!(
-                    "invalid frame hash data file: {}",
-                    src_data_path.display()
-                ));
-            let dst_frame_hashes: super::analyzer::FrameHashes =
-                bincode::deserialize_from(&dst_file).expect(&format!(
-                    "invalid frame hash data file: {}",
-                    dst_data_path.display()
-                ));
-
-            tracing::debug!("loaded hash frame data from disk");
-
-            (src_frame_hashes, dst_frame_hashes)
+            (
+                frame_hash_map
+                    .get(src_path)
+                    .expect("frame hash data not found for src_path"),
+                frame_hash_map
+                    .get(dst_path)
+                    .expect("frame hash data not found for dst_path"),
+            )
         };
 
         tracing::debug!("starting search for opening and ending");
-        let info = self.find_opening_and_ending(&src_frame_hashes, &dst_frame_hashes);
+        let info = self.find_opening_and_ending(src_frame_hashes, dst_frame_hashes);
         tracing::debug!("finished search for opening and ending");
 
         Ok(info)
@@ -503,6 +487,11 @@ impl<P: AsRef<Path> + Sync> Comparator<P> {
         let mut pairs = Vec::new();
         let mut processed_videos = HashSet::new();
 
+        // Stores frame hash data for each video to be analyzed.
+        // We load them all now to be able to handle in-place analysis when the `analyze`
+        // flag is passed in to this method.
+        let mut frame_hash_map = HashMap::new();
+
         for (i, v1) in self.videos.iter().enumerate() {
             let v1 = v1.as_ref();
 
@@ -514,18 +503,24 @@ impl<P: AsRef<Path> + Sync> Comparator<P> {
                 continue;
             }
 
-            // If analysis is required, run the analysis in-place even if data already exists
-            if analyze {
+            let frame_hashes = if analyze {
+                // If analysis is required, run the analysis in-place even if data already exists.
                 tracing::debug!("starting in-place video analysis for {}...", v1.display());
                 let analyzer = super::Analyzer::<P>::default().with_force(true);
-                analyzer.run_single(
+                let frame_hashes = analyzer.run_single(
                     v1,
                     super::DEFAULT_HASH_PERIOD,
                     super::DEFAULT_HASH_DURATION,
                     false,
                 )?;
                 tracing::debug!("completed in-place video analysis for {}", v1.display());
-            }
+                frame_hashes
+            } else {
+                // Otherwise, load the frame hash data from disk.
+                FrameHashes::from_video(v1)?
+            };
+
+            frame_hash_map.insert(v1, frame_hashes);
 
             for (j, v2) in self.videos.iter().enumerate() {
                 let v2 = v2.as_ref();
@@ -545,7 +540,7 @@ impl<P: AsRef<Path> + Sync> Comparator<P> {
                 (
                     *src_path,
                     *dst_path,
-                    self.search(src_path, dst_path).unwrap(),
+                    self.search(src_path, dst_path, &frame_hash_map).unwrap(),
                 )
             })
             .collect::<Vec<_>>();

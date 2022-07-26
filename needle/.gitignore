@@ -10,3 +10,6 @@ target/
 *.pdb
 
 .DS_Store
+
+*.bin
+*.json
