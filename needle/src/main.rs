@@ -141,13 +141,14 @@ enum Commands {
             long,
             default_value = "false",
             action(ArgAction::SetTrue),
-            help = "Ignore skip files on disk. These are JSON files that store the result of the search alongside each video file. When this flag is set, if a skip file exists for a video, it will be skipped during the pairwise search. Do not specify this flag if you want incremental search to work."
+            help = "Check skip files on disk during the search. These are JSON files that store the result of the search alongside each video file. When this flag is set, if a skip file exists for a video, it will be skipped during the pairwise search. Do not specify this flag if you want incremental search to work."
         )]
-        ignore_skip_files: bool,
+        use_skip_files: bool,
 
         #[clap(
             long,
-            default_value = "true",
+            default_value = "false",
+            action(ArgAction::SetTrue),
             help = "Write skip files to disk after the search is completed. These are JSON files that store the result of the search alongside each video file. If skip files already exist for a video, it will be skipped during the search. This is central to how incremental search works."
         )]
         write_skip_files: bool,
@@ -290,7 +291,7 @@ fn main() -> needle::Result<()> {
             min_ending_duration,
             analyze,
             no_display,
-            ignore_skip_files,
+            use_skip_files,
             write_skip_files,
             time_padding,
             ref paths,
@@ -317,7 +318,7 @@ fn main() -> needle::Result<()> {
                 .with_min_opening_duration(min_opening_duration)
                 .with_min_ending_duration(min_ending_duration)
                 .with_time_padding(time_padding);
-            comparator.run(analyze, !no_display, !ignore_skip_files, write_skip_files)?;
+            comparator.run(analyze, !no_display, use_skip_files, write_skip_files)?;
         }
         Commands::Info => {
             println!("FFmpeg version: {}", needle::util::ffmpeg_version_string());
