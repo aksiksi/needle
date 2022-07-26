@@ -29,6 +29,9 @@ pub enum Error {
     /// No paths were provided to the [crate::audio::Analyzer].
     #[error("no paths provided to analyzer")]
     AnalyzerMissingPaths,
+    /// Invalid path.
+    #[error("path does not exist: {0:?}")]
+    PathNotFound(PathBuf),
     /// Wraps [ffmpeg_next::Error].
     #[error("FFmpeg error: {0}")]
     FFmpegError(#[from] ffmpeg_next::Error),

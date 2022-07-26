@@ -16,9 +16,7 @@ enum Mode {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
-    #[clap(
-        after_help = "Displays info about needle and its dependencies."
-    )]
+    #[clap(after_help = "Displays info about needle and its dependencies.")]
     Info,
 
     #[clap(
@@ -178,15 +176,6 @@ struct Cli {
         help = "By default, video files are validated using FFmpeg, which is extremely accurate. Setting this flag will switch to just checking file headers."
     )]
     file_headers_only: bool,
-
-    #[clap(
-        long,
-        global = true,
-        default_value = "false",
-        action(ArgAction::SetTrue),
-        help = "Videos will not be validated all. In other words, all files and directory contents will be assumed to be videos."
-    )]
-    disable_video_validation: bool,
 }
 
 impl Cli {
@@ -246,55 +235,17 @@ impl Cli {
     }
 
     fn find_video_files(&self, paths: &[PathBuf]) -> Vec<PathBuf> {
-        // Validate all paths.
-        for path in paths {
-            if !path.exists() {
+        match needle::util::find_video_files(
+            paths,
+            !self.file_headers_only,
+            !cfg!(feature = "video"),
+        ) {
+            Err(e) => {
                 let mut cmd = Cli::command();
-                cmd.error(
-                    ErrorKind::InvalidValue,
-                    format!("invalid path: {}", path.display()),
-                )
-                .exit();
+                cmd.error(ErrorKind::InvalidValue, e.to_string()).exit();
             }
+            Ok(v) => v,
         }
-
-        let full_validation = !self.file_headers_only;
-
-        // Find valid video files.
-        let mut valid_video_files = Vec::new();
-        for path in paths {
-            if path.is_dir() {
-                valid_video_files.extend(
-                    std::fs::read_dir(path)
-                        .unwrap()
-                        .map(|p| {
-                            let entry = p.unwrap();
-                            entry.path()
-                        })
-                        .filter(|p| {
-                            self.disable_video_validation
-                                || needle::util::is_valid_video_file(
-                                    p,
-                                    full_validation,
-                                    !cfg!(feature = "video"),
-                                )
-                        })
-                        .collect::<Vec<_>>(),
-                );
-            } else {
-                if self.disable_video_validation
-                    || needle::util::is_valid_video_file(
-                        path,
-                        full_validation,
-                        !cfg!(feature = "video"),
-                    )
-                {
-                    valid_video_files.push(path.clone());
-                }
-            }
-        }
-
-        valid_video_files
     }
 }
 
