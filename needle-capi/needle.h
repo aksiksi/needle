@@ -23,6 +23,10 @@ typedef enum NeedleError {
    */
   NeedleError_NullArgument,
   /**
+   * One or more arguments were invalid (usually zero).
+   */
+  NeedleError_InvalidArgument,
+  /**
    * Frame hash data was not found on disk.
    */
   NeedleError_FrameHashDataNotFound,
@@ -131,6 +135,26 @@ typedef struct NeedleAudioComparator NeedleAudioComparator;
  * Returns the string representation of the given [NeedleError].
  */
 const char *needle_error_to_str(enum NeedleError error);
+
+/**
+ * Given a list of paths (files or directories), returns the list of valid video files.
+ *
+ * When you are done with the returned list of videos, you must call [needle_util_video_files_free]
+ * to free the memory.
+ *
+ * For more information, refer to [needle::util::find_video_files].
+ */
+enum NeedleError needle_util_find_video_files(const char *const *paths,
+                                              size_t num_paths,
+                                              bool full,
+                                              bool audio,
+                                              const char *const **videos,
+                                              size_t *num_videos);
+
+/**
+ * Free the list of videos files returned by [needle_util_find_video_files].
+ */
+void needle_util_video_files_free(const char *const *videos, size_t num_videos);
 
 /**
  * Constructs a new [NeedleAudioAnalyzer] with sane defaults.

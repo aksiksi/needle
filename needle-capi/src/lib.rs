@@ -47,7 +47,8 @@
 //!     }
 //! }
 //! ```
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
+use std::fmt::Display;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -63,6 +64,8 @@ pub enum NeedleError {
     InvalidUtf8String,
     /// One or more pointer arguments passed into the function were NULL.
     NullArgument,
+    /// One or more arguments were invalid (usually zero).
+    InvalidArgument,
     /// Frame hash data was not found on disk.
     FrameHashDataNotFound,
     /// Frame hash data on disk is not valid.
@@ -79,9 +82,41 @@ pub enum NeedleError {
     Unknown,
 }
 
+impl Display for NeedleError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NeedleError::Ok => write!(f, "No error"),
+            NeedleError::InvalidUtf8String => write!(f, "Invalid UTF-8 string"),
+            NeedleError::NullArgument => write!(f, "Input argument is NULL"),
+            NeedleError::InvalidArgument => {
+                write!(f, "One or more input arguments were invalid (usually zero)")
+            }
+            NeedleError::FrameHashDataNotFound => write!(f, "Frame hash data not found on disk"),
+            NeedleError::InvalidFrameHashData => {
+                write!(f, "Invalid frame hash data read from disk")
+            }
+            NeedleError::ComparatorMinimumPaths => {
+                write!(f, "Comparator requires at least 2 video paths")
+            }
+            NeedleError::AnalyzerInvalidHashPeriod => {
+                write!(f, "Analyzer hash period must be greater than 0")
+            }
+            NeedleError::AnalyzerInvalidHashDuration => {
+                write!(f, "Analyzer hash duration must be greater than 3 seconds")
+            }
+            NeedleError::IOError => write!(f, "I/O error"),
+            NeedleError::Unknown => write!(
+                f,
+                "Unknown error occurred; please re-run with logging enabled"
+            ),
+        }
+    }
+}
+
 impl From<needle::Error> for NeedleError {
     fn from(err: needle::Error) -> Self {
         use NeedleError::*;
+        eprintln!("needle error: {}", err);
         match err {
             needle::Error::FrameHashDataNotFound(_) => FrameHashDataNotFound,
             needle::Error::AnalyzerMissingPaths => Unknown,
@@ -103,7 +138,13 @@ pub extern "C" fn needle_error_to_str(error: NeedleError) -> *const libc::c_char
             CStr::from_bytes_with_nul_unchecked("Invalid UTF-8 string\0".as_bytes()).as_ptr()
         },
         NeedleError::NullArgument => unsafe {
-            CStr::from_bytes_with_nul_unchecked("Input argument is null\0".as_bytes()).as_ptr()
+            CStr::from_bytes_with_nul_unchecked("Input argument is NULL\0".as_bytes()).as_ptr()
+        },
+        NeedleError::InvalidArgument => unsafe {
+            CStr::from_bytes_with_nul_unchecked(
+                "One or more input arguments were invalid (usually zero)\0".as_bytes(),
+            )
+            .as_ptr()
         },
         NeedleError::FrameHashDataNotFound => unsafe {
             CStr::from_bytes_with_nul_unchecked("Frame hash data not found on disk\0".as_bytes())
@@ -145,27 +186,109 @@ pub extern "C" fn needle_error_to_str(error: NeedleError) -> *const libc::c_char
     }
 }
 
+/// Given a list of paths (files or directories), returns the list of valid video files.
+///
+/// When you are done with the returned list of videos, you must call [needle_util_video_files_free]
+/// to free the memory.
+///
+/// For more information, refer to [needle::util::find_video_files].
+#[no_mangle]
+pub extern "C" fn needle_util_find_video_files(
+    paths: *const *const libc::c_char,
+    num_paths: libc::size_t,
+    full: bool,
+    audio: bool,
+    videos: *mut *const *const libc::c_char,
+    num_videos: *mut libc::size_t,
+) -> NeedleError {
+    if paths.is_null() || videos.is_null() || num_videos.is_null() {
+        return NeedleError::NullArgument;
+    }
+    if num_paths == 0 {
+        return NeedleError::InvalidArgument;
+    }
+
+    let paths = match get_paths_from_raw(paths, num_paths) {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+
+    let video_files = match needle::util::find_video_files(&paths, full, audio) {
+        Ok(v) => v,
+        Err(e) => return e.into(),
+    };
+
+    let video_files = video_files
+        .into_iter()
+        .map(|p| p.to_string_lossy().to_string())
+        .map(|s| CString::new(s).expect("found NULL byte in path"))
+        .map(|s| s.into_raw() as *const _)
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+
+    // SAFETY:
+    //
+    // 1) Output pointer is not null.
+    // 2) We are constructing a boxed slice ourselves and then converting it into a pointer.
+    unsafe {
+        *num_videos = video_files.len();
+        *videos = video_files.as_ptr();
+    }
+
+    // Since ownership has been transferred to the caller, we need to tell the compiler to not
+    // drop this memory.
+    std::mem::forget(video_files);
+
+    NeedleError::Ok
+}
+
+/// Free the list of videos files returned by [needle_util_find_video_files].
+#[no_mangle]
+pub extern "C" fn needle_util_video_files_free(
+    videos: *const *const libc::c_char,
+    num_videos: libc::size_t,
+) {
+    if videos.is_null() || num_videos == 0 {
+        return;
+    }
+
+    // Reconstruct a Vec from the provided pointer.
+    // SAFETY: We are assuming that the user provided a _valid_ pointer here.
+    let video_files = unsafe {
+        // The length and capacity are the same because we used [Vec::into_boxed_slice] during creation.
+        Vec::from_raw_parts(videos as *mut *mut libc::c_char, num_videos, num_videos)
+    };
+
+    // Reconstruct the original `Vec<CString>` and drop it.
+    let video_files = video_files
+        .into_iter()
+        .map(|r| unsafe { CString::from_raw(r) })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    drop(video_files);
+}
+
 fn get_paths_from_raw(
     raw_paths: *const *const libc::c_char,
     len: libc::size_t,
-) -> Option<Vec<PathBuf>> {
+) -> Result<Vec<PathBuf>, NeedleError> {
     // SAFETY: Pointer and length are user input by design, so there is not much we can do here.
     let raw_paths = unsafe { std::slice::from_raw_parts(raw_paths, len) };
 
     let mut paths: Vec<PathBuf> = Vec::new();
     for path in raw_paths {
         if path.is_null() {
-            return None;
+            return Err(NeedleError::NullArgument);
         }
         // SAFETY: User should be passing in a string.
         let path = unsafe { std::ffi::CStr::from_ptr(*path) };
         let path = match path.to_str() {
             Ok(p) => p,
-            Err(_) => return None,
+            Err(_) => return Err(NeedleError::InvalidUtf8String),
         };
         paths.push(path.into());
     }
-    Some(paths)
+    Ok(paths)
 }
 
 /// Wraps [needle::audio::Analyzer] with a C API.
@@ -225,8 +348,8 @@ pub extern "C" fn needle_audio_analyzer_new(
     }
 
     let paths = match get_paths_from_raw(paths, num_paths) {
-        Some(v) => v,
-        None => return NeedleError::InvalidUtf8String,
+        Ok(v) => v,
+        Err(e) => return e,
     };
 
     let analyzer = audio::Analyzer::from_files(paths, threaded_decoding, force);
@@ -378,8 +501,8 @@ pub extern "C" fn needle_audio_comparator_new(
     }
 
     let paths = match get_paths_from_raw(paths, num_paths) {
-        Some(v) => v,
-        None => return NeedleError::InvalidUtf8String,
+        Ok(v) => v,
+        Err(e) => return e,
     };
 
     let min_opening_duration = Duration::from_secs(min_opening_duration as u64);
@@ -431,7 +554,10 @@ pub extern "C" fn needle_audio_comparator_run(
     // SAFETY: We assume that the user is passing in a _valid_ pointer. Otherwise, all bets are off.
     let comparator = unsafe { comparator.as_ref().unwrap() };
 
-    match comparator.0.run(analyze, display, use_skip_files, write_skip_files) {
+    match comparator
+        .0
+        .run(analyze, display, use_skip_files, write_skip_files)
+    {
         Ok(_) => NeedleError::Ok,
         Err(e) => e.into(),
     }
@@ -440,6 +566,44 @@ pub extern "C" fn needle_audio_comparator_run(
 #[cfg(test)]
 mod test {
     use super::*;
+
+    fn get_sample_paths() -> Vec<PathBuf> {
+        let resources = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("needle")
+            .join("resources");
+        vec![
+            resources.join("sample-5s.mp4"),
+            resources.join("sample-shifted-4s.mp4"),
+        ]
+    }
+
+    #[test]
+    fn test_find_video_files() {
+        let paths: Vec<CString> = get_sample_paths()
+            .into_iter()
+            .map(|p| CString::new(p.to_string_lossy().to_string()).unwrap())
+            .collect();
+        let path_ptrs: Vec<*const libc::c_char> = paths
+            .iter()
+            .map(|s| s.as_ptr() as *const libc::c_char)
+            .collect();
+
+        let mut videos = std::ptr::null();
+        let mut num_videos = 0usize;
+
+        let error = needle_util_find_video_files(
+            path_ptrs.as_ptr(),
+            paths.len(),
+            true,
+            true,
+            &mut videos,
+            &mut num_videos,
+        );
+        assert_eq!(error, NeedleError::Ok);
+        needle_util_video_files_free(videos, num_videos);
+    }
 
     #[test]
     fn test_analyzer() {
