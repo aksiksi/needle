@@ -6,8 +6,8 @@ int main() {
     const NeedleAudioComparator *comparator = NULL;
 
     const char *video_paths[] = {
-        "/Users/aksiksi/Movies/ep1.mkv",
-        "/Users/aksiksi/Movies/ep2.mkv",
+        "../../needle/resources/sample-5s.mp4",
+        "../../needle/resources/sample-shifted-4s.mp4",
     };
     const int NUM_PATHS = 2;
 
