@@ -130,6 +130,18 @@ impl<P: AsRef<Path>> Analyzer<P> {
         &self.videos
     }
 
+    /// Returns a new [Analyzer] with `force` set to the provided value.
+    pub fn with_force(mut self, force: bool) -> Self {
+        self.force = force;
+        self
+    }
+
+    /// Returns a new [Analyzer] with `thread_decoding` set to the provided value.
+    pub fn with_threaded_decoding(mut self, threaded_decoding: bool) -> Self {
+        self.threaded_decoding = threaded_decoding;
+        self
+    }
+
     fn find_best_audio_stream(
         input: &ffmpeg_next::format::context::Input,
     ) -> ffmpeg_next::format::stream::Stream {
