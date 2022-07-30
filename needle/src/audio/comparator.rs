@@ -503,22 +503,7 @@ impl<P: AsRef<Path> + Sync> Comparator<P> {
                 continue;
             }
 
-            let frame_hashes = if analyze {
-                // If analysis is required, run the analysis in-place even if data already exists.
-                tracing::debug!("starting in-place video analysis for {}...", v1.display());
-                let analyzer = super::Analyzer::<P>::default().with_force(true);
-                let frame_hashes = analyzer.run_single(
-                    v1,
-                    super::DEFAULT_HASH_PERIOD,
-                    super::DEFAULT_HASH_DURATION,
-                    false,
-                )?;
-                tracing::debug!("completed in-place video analysis for {}", v1.display());
-                frame_hashes
-            } else {
-                // Otherwise, load the frame hash data from disk.
-                FrameHashes::from_video(v1)?
-            };
+            let frame_hashes = FrameHashes::from_video(v1, analyze)?;
 
             frame_hash_map.insert(v1, frame_hashes);
 

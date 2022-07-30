@@ -31,8 +31,8 @@ pub struct FrameHashes {
 }
 
 impl FrameHashes {
-    /// Load from a path.
-    pub fn from_path(path: impl AsRef<Path>) -> Result<Self> {
+    /// Load frame hashes from a path.
+    fn from_path(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         if !path.exists() {
             return Err(Error::FrameHashDataNotFound(path.to_owned()).into());
@@ -41,13 +41,33 @@ impl FrameHashes {
         Ok(bincode::deserialize_from(&f)?)
     }
 
-    /// Load frame hash data stored alongside the given video.
-    pub fn from_video(video: impl AsRef<Path>) -> Result<Self> {
-        let path = video
-            .as_ref()
-            .to_owned()
-            .with_extension(super::FRAME_HASH_DATA_FILE_EXT);
-        Self::from_path(&path)
+    /// Load frame hash data using a video path.
+    ///
+    /// If `analyze` is set, the video is analyzed in-place. Otherwise, the frame data is
+    /// loaded from alongside the video.
+    pub fn from_video(video: impl AsRef<Path>, analyze: bool) -> Result<Self> {
+        let video = video.as_ref();
+
+        if !analyze {
+            let path = video
+                .to_owned()
+                .with_extension(super::FRAME_HASH_DATA_FILE_EXT);
+            Self::from_path(&path)
+        } else {
+            tracing::debug!(
+                "starting in-place video analysis for {}...",
+                video.display()
+            );
+            let analyzer = super::Analyzer::<&Path>::default().with_force(true);
+            let frame_hashes = analyzer.run_single(
+                video,
+                super::DEFAULT_HASH_PERIOD,
+                super::DEFAULT_HASH_DURATION,
+                false,
+            )?;
+            tracing::debug!("completed in-place video analysis for {}", video.display());
+            Ok(frame_hashes)
+        }
     }
 }
 
