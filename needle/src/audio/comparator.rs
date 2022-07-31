@@ -455,9 +455,12 @@ impl<P: AsRef<Path> + Ord> Comparator<P> {
                     continue;
                 }
                 let dist = u32::count_ones(c.2 ^ other.2);
-                if dist >= self.hash_match_threshold {
+
+                // Add a small bias to the hash match threshold when comparing sequence hashes.
+                if dist >= self.hash_match_threshold + (self.hash_match_threshold / 2) {
                     continue;
                 }
+
                 distinct_matches
                     .entry(i)
                     .or_insert(HashSet::new())
@@ -478,12 +481,13 @@ impl<P: AsRef<Path> + Ord> Comparator<P> {
             .map(|(k, v)| {
                 let (((start, end), _, _), _) = candidates[*k];
                 let count = v.len() as i64;
-                let duration_secs = (end - start).as_secs() as i64;
-                // Sort by count followed by duration
-                (-count, -duration_secs, *k)
+                let duration_secs = (end - start).as_secs_f32();
+                // Weighted sum of count and duration, with more weight given to duration.
+                (-(count as f32 * 0.3 + duration_secs * 0.7), *k)
             })
             .collect::<Vec<_>>();
-        best_openings.sort();
+        // We can't used .sort() because f32 is not `Ord`.
+        best_openings.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         let mut best_endings = distinct_matches
             .iter()
@@ -494,16 +498,16 @@ impl<P: AsRef<Path> + Ord> Comparator<P> {
             .map(|(k, v)| {
                 let (((start, end), _, _), _) = candidates[*k];
                 let count = v.len() as i64;
-                let duration_secs = (end - start).as_secs() as i64;
-                // Sort by count followed by duration
-                (-count, -duration_secs, *k)
+                let duration_secs = (end - start).as_secs_f32();
+                // Weighted sum of count and duration, with more weight given to duration.
+                (-(count as f32 * 0.3 + duration_secs * 0.7), *k)
             })
             .collect::<Vec<_>>();
-        best_endings.sort();
+        best_endings.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         let mut best: SearchResult = Default::default();
 
-        if let Some((_, _, idx)) = best_openings.first() {
+        if let Some((_, idx)) = best_openings.first() {
             let (((start, end), hash_duration, _), _) = candidates[*idx];
             best.opening = Some((
                 // Add a buffer between actual detected times and what we return to users.
@@ -512,7 +516,7 @@ impl<P: AsRef<Path> + Ord> Comparator<P> {
                 end - self.time_padding - hash_duration,
             ));
         }
-        if let Some((_, _, idx)) = best_endings.first() {
+        if let Some((_, idx)) = best_endings.first() {
             let (((start, end), hash_duration, _), _) = candidates[*idx];
             best.ending = Some((
                 // Add a buffer between actual detected times and what we return to users.
