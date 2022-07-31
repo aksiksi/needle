@@ -376,8 +376,7 @@ impl<P: AsRef<Path> + Ord> Comparator<P> {
         Ok(())
     }
 
-    fn display_opening_ending_info(&self, path: &Path, result: SearchResult) {
-        println!("\n{}\n", path.display());
+    fn display_opening_ending_info(&self, result: SearchResult) {
         if let Some(opening) = result.opening {
             let (start, end) = opening;
             println!(
@@ -534,10 +533,10 @@ impl<P: AsRef<Path> + Ord> Comparator<P> {
 impl<P: AsRef<Path> + Ord + Sync> Comparator<P> {
     /// Runs the comparator.
     ///
-    /// If `analyze` is set to true, an `Analyzer` will be built for each video file and run in-place.
-    /// If `display` is set, the final results will be printed to stdout. If `use_skip_files` is set,
-    /// if a skip file already exists for a video, the video will be skipped during this run. If `write_skip_files`
+    /// * If `analyze` is set to true, an `Analyzer` will be built for each video file and run in-place.
+    /// * If `use_skip_files` is set, if a skip file already exists for a video, the video will be skipped during this run. If `write_skip_files`
     /// is set, a skip file will be written to disk once the comparator is completed.
+    /// * If `display` is set, the final results will be printed to stdout.
     pub fn run(
         &self,
         analyze: bool,
@@ -558,14 +557,6 @@ impl<P: AsRef<Path> + Ord + Sync> Comparator<P> {
 
         for (i, v1) in self.videos.iter().enumerate() {
             let v1 = v1.as_ref();
-
-            // Skip processing this video if it already has a skip file on disk.
-            // TODO(aksiksi): This needs to be fixed.
-            if use_skip_files && Self::check_skip_file(v1)? {
-                println!("Skipping {} due to existing skip file...", v1.display());
-                processed_videos[i] = true;
-                continue;
-            }
 
             let frame_hashes = FrameHashes::from_video(v1, analyze)?;
 
@@ -629,14 +620,28 @@ impl<P: AsRef<Path> + Ord + Sync> Comparator<P> {
         // of other videos. If required, display the result and write a skip file to disk.
         for (idx, matches) in info_map.into_iter().enumerate() {
             let path = self.videos[idx].as_ref().to_owned();
+            if display {
+                println!("\n{}\n", path.display());
+            }
+
+            // Skip match selection for this video if it already has a skip file on disk.
+            if use_skip_files && Self::check_skip_file(&path)? {
+                if display {
+                    println!("Skipping due to existing skip file...");
+                }
+                continue;
+            }
+
             let result = self.find_best_match(&matches);
             if result.is_none() {
-                println!("No opening or ending found for: {}", path.display());
+                if display {
+                    println!("No opening or ending found.");
+                }
                 continue;
             }
             let result = result.unwrap();
             if display {
-                self.display_opening_ending_info(&path, result);
+                self.display_opening_ending_info(result);
             }
             if write_skip_files {
                 self.create_skip_file(&path, result)?;
