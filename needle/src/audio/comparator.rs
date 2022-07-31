@@ -1,3 +1,4 @@
+#[cfg(feature = "rayon")]
 extern crate rayon;
 
 use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
@@ -543,6 +544,7 @@ impl<P: AsRef<Path> + Ord + Sync> Comparator<P> {
         display: bool,
         use_skip_files: bool,
         write_skip_files: bool,
+        threading: bool,
     ) -> Result<BTreeMap<PathBuf, SearchResult>> {
         // Build a list of video pairs for actual search. Pairs should only appear once.
         // Given N videos, this will result in: (N * (N-1)) / 2 pairs
@@ -578,31 +580,38 @@ impl<P: AsRef<Path> + Ord + Sync> Comparator<P> {
             processed_videos[i] = true;
         }
 
-        // Perform the search in parallel for all pairs.
-        #[cfg(feature = "rayon")]
-        let data = pairs
-            .par_iter()
-            .map(|(src_idx, dst_idx)| {
-                (
-                    *src_idx,
-                    *dst_idx,
-                    self.search(*src_idx, *dst_idx, &frame_hash_map).unwrap(),
-                )
-            })
-            .filter(|(_, _, info)| !info.is_empty())
-            .collect::<Vec<_>>();
-        #[cfg(not(feature = "rayon"))]
-        let data = pairs
-            .iter()
-            .map(|(src_idx, dst_idx)| {
-                (
-                    *src_idx,
-                    *dst_idx,
-                    self.search(*src_idx, *dst_idx, &frame_hash_map).unwrap(),
-                )
-            })
-            .filter(|(_, _, info)| !info.is_empty())
-            .collect::<Vec<_>>();
+        let mut data = Vec::new();
+
+        if cfg!(feature = "rayon") && threading {
+            // Perform the search in parallel for all pairs.
+            #[cfg(feature = "rayon")]
+            {
+                data = pairs
+                    .par_iter()
+                    .map(|(src_idx, dst_idx)| {
+                        (
+                            *src_idx,
+                            *dst_idx,
+                            self.search(*src_idx, *dst_idx, &frame_hash_map).unwrap(),
+                        )
+                    })
+                    .filter(|(_, _, info)| !info.is_empty())
+                    .collect::<Vec<_>>();
+            }
+        } else {
+            data.extend(
+                pairs
+                    .iter()
+                    .map(|(src_idx, dst_idx)| {
+                        (
+                            *src_idx,
+                            *dst_idx,
+                            self.search(*src_idx, *dst_idx, &frame_hash_map).unwrap(),
+                        )
+                    })
+                    .filter(|(_, _, info)| !info.is_empty()),
+            );
+        }
 
         // This map tracks the generated info struct for each video path. A bool is included
         // to allow determining whether the path is a source (true) or dest (false) in the info
@@ -659,7 +668,7 @@ mod test {
         let comparator = Comparator::from_files(paths)
             .with_min_opening_duration(Duration::from_millis(300))
             .with_min_ending_duration(Duration::from_millis(300));
-        let data = comparator.run(true, true, false, false).unwrap();
+        let data = comparator.run(true, true, false, false, false).unwrap();
         assert_eq!(data.len(), 2);
     }
 }

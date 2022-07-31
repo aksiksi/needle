@@ -398,6 +398,7 @@ pub extern "C" fn needle_audio_analyzer_run(
     hash_period: f32,
     hash_duration: f32,
     persist: bool,
+    threading: bool,
 ) -> NeedleError {
     if analyzer.is_null() {
         return NeedleError::NullArgument;
@@ -412,7 +413,7 @@ pub extern "C" fn needle_audio_analyzer_run(
     // SAFETY: We assume that the user is passing in a _valid_ pointer. Otherwise, all bets are off.
     let analyzer = unsafe { analyzer.as_ref().unwrap() };
 
-    match analyzer.0.run(hash_period, hash_duration, persist) {
+    match analyzer.0.run(hash_period, hash_duration, persist, threading) {
         Ok(_) => NeedleError::Ok,
         Err(e) => e.into(),
     }
@@ -546,6 +547,7 @@ pub extern "C" fn needle_audio_comparator_run(
     display: bool,
     use_skip_files: bool,
     write_skip_files: bool,
+    threading: bool,
 ) -> NeedleError {
     if comparator.is_null() {
         return NeedleError::NullArgument;
@@ -556,7 +558,7 @@ pub extern "C" fn needle_audio_comparator_run(
 
     match comparator
         .0
-        .run(analyze, display, use_skip_files, write_skip_files)
+        .run(analyze, display, use_skip_files, write_skip_files, threading)
     {
         Ok(_) => NeedleError::Ok,
         Err(e) => e.into(),

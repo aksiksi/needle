@@ -1,5 +1,6 @@
 extern crate chromaprint_rust;
 extern crate ffmpeg_next;
+#[cfg(feature = "rayon")]
 extern crate rayon;
 
 use chromaprint_rust as chromaprint;
@@ -367,30 +368,32 @@ impl<P: AsRef<Path> + Sync> Analyzer<P> {
         hash_period: f32,
         hash_duration: f32,
         persist: bool,
+        threading: bool,
     ) -> Result<Vec<FrameHashes>> {
         if self.videos.len() == 0 {
             return Err(Error::AnalyzerMissingPaths.into());
         }
 
-        #[cfg(feature = "rayon")]
-        let data = self
-            .videos
-            .par_iter()
-            .map(|path| {
-                self.run_single(path, hash_period, hash_duration, persist)
-                    .unwrap()
-            })
-            .collect::<Vec<_>>();
+        let mut data = Vec::new();
 
-        #[cfg(not(feature = "rayon"))]
-        let data = self
-            .paths
-            .iter()
-            .map(|path| {
+        if cfg!(feature = "rayon") && threading {
+            #[cfg(feature = "rayon")]
+            {
+                data = self
+                    .videos
+                    .par_iter()
+                    .map(|path| {
+                        self.run_single(path, hash_period, hash_duration, persist)
+                            .unwrap()
+                    })
+                    .collect::<Vec<_>>();
+            }
+        } else {
+            data.extend(self.videos.iter().map(|path| {
                 self.run_single(path, hash_period, hash_duration, persist)
                     .unwrap()
-            })
-            .collect::<Vec<_>>();
+            }));
+        }
 
         Ok(data)
     }
@@ -414,7 +417,7 @@ mod test {
     fn test_analyzer() {
         let paths = get_sample_paths();
         let analyzer = Analyzer::from_files(paths.clone(), false, false);
-        let data = analyzer.run(0.3, 3.0, false).unwrap();
+        let data = analyzer.run(0.3, 3.0, false, false).unwrap();
         insta::assert_debug_snapshot!(data);
     }
 }

@@ -188,7 +188,8 @@ void needle_audio_analyzer_print_paths(const struct NeedleAudioAnalyzer *analyze
 enum NeedleError needle_audio_analyzer_run(const struct NeedleAudioAnalyzer *analyzer,
                                            float hash_period,
                                            float hash_duration,
-                                           bool persist);
+                                           bool persist,
+                                           bool threading);
 
 /**
  * Constructs a new [NeedleAudioComparator] using sane defaults.
@@ -224,6 +225,7 @@ enum NeedleError needle_audio_comparator_run(const struct NeedleAudioComparator 
                                              bool analyze,
                                              bool display,
                                              bool use_skip_files,
-                                             bool write_skip_files);
+                                             bool write_skip_files,
+                                             bool threading);
 
 #endif /* NEEDLE_H */

@@ -17,7 +17,7 @@ int main() {
         goto done;
     }
 
-    err = needle_audio_comparator_run(comparator, true, true, false, false);
+    err = needle_audio_comparator_run(comparator, true, true, false, false, true);
     if (err != 0) {
         printf("Failed to run comparator: %s\n", needle_error_to_str(err));
         goto done;

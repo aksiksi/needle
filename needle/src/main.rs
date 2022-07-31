@@ -174,6 +174,15 @@ struct Cli {
         global = true,
         default_value = "false",
         action(ArgAction::SetTrue),
+        help = "Disable multi-threading."
+    )]
+    no_threading: bool,
+
+    #[clap(
+        long,
+        global = true,
+        default_value = "false",
+        action(ArgAction::SetTrue),
         help = "By default, video files are validated using FFmpeg, which is extremely accurate. Setting this flag will switch to just checking file headers."
     )]
     file_headers_only: bool,
@@ -274,7 +283,7 @@ fn main() -> needle::Result<()> {
             Mode::Audio => {
                 let videos = args.find_video_files(paths);
                 let analyzer = audio::Analyzer::from_files(videos, threaded_decoding, force);
-                analyzer.run(hash_period, hash_duration, true)?;
+                analyzer.run(hash_period, hash_duration, true, !args.no_threading)?;
             }
             #[cfg(feature = "video")]
             Mode::Video => {
@@ -318,7 +327,7 @@ fn main() -> needle::Result<()> {
                 .with_min_opening_duration(min_opening_duration)
                 .with_min_ending_duration(min_ending_duration)
                 .with_time_padding(time_padding);
-            comparator.run(analyze, !no_display, use_skip_files, write_skip_files)?;
+            comparator.run(analyze, !no_display, use_skip_files, write_skip_files, !args.no_threading)?;
         }
         Commands::Info => {
             println!("FFmpeg version: {}", needle::util::ffmpeg_version_string());
