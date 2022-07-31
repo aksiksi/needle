@@ -220,11 +220,14 @@ impl<P: AsRef<Path> + Ord> Comparator<P> {
                     dst_start > dst_min_ending_time,
                 );
 
-                let is_valid = (is_src_opening
+                // A LCS result is only valid iff it is a valid opening or ending in the source _and_ the dest.
+                let is_src_valid = (is_src_opening
                     && (src_end - src_start) >= self.min_opening_duration)
-                    || (is_src_ending && (src_end - src_start) >= self.min_ending_duration)
-                    || (is_dst_opening && (dst_end - dst_start) >= self.min_opening_duration)
+                    || (is_src_ending && (src_end - src_start) >= self.min_ending_duration);
+                let is_dst_valid = (is_dst_opening
+                    && (dst_end - dst_start) >= self.min_opening_duration)
                     || (is_dst_ending && (dst_end - dst_start) >= self.min_ending_duration);
+                let is_valid = is_src_valid && is_dst_valid;
 
                 if is_valid {
                     let src_match_hash =
