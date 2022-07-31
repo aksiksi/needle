@@ -471,6 +471,7 @@ pub extern "C" fn needle_audio_comparator_new_default(
     needle_audio_comparator_new(
         paths,
         num_paths,
+        false,
         audio::DEFAULT_HASH_MATCH_THRESHOLD,
         audio::DEFAULT_OPENING_SEARCH_PERCENTAGE,
         audio::DEFAULT_ENDING_SEARCH_PERCENTAGE,
@@ -486,6 +487,7 @@ pub extern "C" fn needle_audio_comparator_new_default(
 pub extern "C" fn needle_audio_comparator_new(
     paths: *const *const libc::c_char,
     num_paths: libc::size_t,
+    openings_only: bool,
     hash_match_threshold: u16,
     opening_search_percentage: f32,
     ending_search_percentage: f32,
@@ -510,6 +512,7 @@ pub extern "C" fn needle_audio_comparator_new(
     let min_ending_duration = Duration::from_secs(min_ending_duration as u64);
     let time_padding = Duration::from_secs_f32(time_padding);
     let comparator = audio::Comparator::from_files(paths)
+        .with_openings_only(openings_only)
         .with_hash_match_threshold(hash_match_threshold as u32)
         .with_opening_search_percentage(opening_search_percentage)
         .with_ending_search_percentage(ending_search_percentage)
@@ -642,6 +645,7 @@ mod test {
         let error = needle_audio_comparator_new(
             path_ptrs.as_ptr(),
             num_paths,
+            false,
             10,
             0.33,
             0.2,

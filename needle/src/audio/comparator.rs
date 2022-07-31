@@ -1,3 +1,4 @@
+extern crate chromaprint_rust;
 #[cfg(feature = "rayon")]
 extern crate rayon;
 
@@ -78,6 +79,7 @@ pub struct SearchResult {
 #[derive(Debug)]
 pub struct Comparator<P: AsRef<Path>> {
     videos: Vec<P>,
+    openings_only: bool,
     hash_match_threshold: u32,
     opening_search_percentage: f32,
     ending_search_percentage: f32,
@@ -90,6 +92,7 @@ impl<P: AsRef<Path>> Default for Comparator<P> {
     fn default() -> Self {
         Self {
             videos: Vec::new(),
+            openings_only: false,
             hash_match_threshold: super::DEFAULT_HASH_MATCH_THRESHOLD as u32,
             opening_search_percentage: super::DEFAULT_OPENING_SEARCH_PERCENTAGE,
             ending_search_percentage: super::DEFAULT_ENDING_SEARCH_PERCENTAGE,
@@ -112,6 +115,12 @@ impl<P: AsRef<Path> + Ord> Comparator<P> {
     /// Returns the video paths used by this comparator.
     pub fn videos(&self) -> &[P] {
         &self.videos
+    }
+
+    /// Returns a new [Comparator] with the provided `openings_only`.
+    pub fn with_openings_only(mut self, openings_only: bool) -> Self {
+        self.openings_only = openings_only;
+        self
     }
 
     /// Returns a new [Comparator] with the provided `hash_match_threshold`.
@@ -229,28 +238,42 @@ impl<P: AsRef<Path> + Ord> Comparator<P> {
                     || (is_dst_ending && (dst_end - dst_start) >= self.min_ending_duration);
                 let is_valid = is_src_valid && is_dst_valid;
 
-                if is_valid {
-                    let src_match_hash =
-                        Self::compute_hash_for_match(src, (src_start_idx, src_end_idx));
-                    let dst_match_hash =
-                        Self::compute_hash_for_match(dst, (dst_start_idx, dst_end_idx));
-
-                    let entry = ComparatorHeapEntry {
-                        score: table[i][j],
-                        src_longest_run: (src_start, src_end),
-                        dst_longest_run: (dst_start, dst_end),
-                        src_match_hash,
-                        dst_match_hash,
-                        is_src_opening,
-                        is_src_ending,
-                        is_dst_opening,
-                        is_dst_ending,
-                        src_hash_duration,
-                        dst_hash_duration,
-                    };
-
-                    heap.push(entry);
+                // Skip invalid sequences.
+                if !is_valid {
+                    j -= 1;
+                    continue;
                 }
+
+                // If we do not need endings, skip them now.
+                let is_ending = (is_src_ending
+                    && (src_end - src_start) >= self.min_ending_duration)
+                    || (is_dst_ending && (dst_end - dst_start) >= self.min_ending_duration);
+                if is_ending && self.openings_only {
+                    j -= 1;
+                    continue;
+                }
+
+                // We have a valid entry at this point.
+                let src_match_hash =
+                    Self::compute_hash_for_match(src, (src_start_idx, src_end_idx));
+                let dst_match_hash =
+                    Self::compute_hash_for_match(dst, (dst_start_idx, dst_end_idx));
+
+                let entry = ComparatorHeapEntry {
+                    score: table[i][j],
+                    src_longest_run: (src_start, src_end),
+                    dst_longest_run: (dst_start, dst_end),
+                    src_match_hash,
+                    dst_match_hash,
+                    is_src_opening,
+                    is_src_ending,
+                    is_dst_opening,
+                    is_dst_ending,
+                    src_hash_duration,
+                    dst_hash_duration,
+                };
+
+                heap.push(entry);
 
                 j -= 1;
             }
@@ -387,15 +410,19 @@ impl<P: AsRef<Path> + Ord> Comparator<P> {
         } else {
             println!("* Opening - N/A");
         }
-        if let Some(ending) = result.ending {
-            let (start, end) = ending;
-            println!(
-                "* Ending - {:?}-{:?}",
-                util::format_time(start),
-                util::format_time(end)
-            );
-        } else {
-            println!("* Ending - N/A");
+
+        // Disply ending information only when needed.
+        if !self.openings_only {
+            if let Some(ending) = result.ending {
+                let (start, end) = ending;
+                println!(
+                    "* Ending - {:?}-{:?}",
+                    util::format_time(start),
+                    util::format_time(end)
+                );
+            } else {
+                println!("* Ending - N/A");
+            }
         }
     }
 
@@ -472,6 +499,8 @@ impl<P: AsRef<Path> + Ord> Comparator<P> {
             }
         }
 
+        let mut best: SearchResult = Default::default();
+
         let mut best_openings = distinct_matches
             .iter()
             .filter(|(k, _)| {
@@ -489,24 +518,6 @@ impl<P: AsRef<Path> + Ord> Comparator<P> {
         // We can't used .sort() because f32 is not `Ord`.
         best_openings.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
-        let mut best_endings = distinct_matches
-            .iter()
-            .filter(|(k, _)| {
-                let (_, is_opening) = candidates[**k];
-                !is_opening
-            })
-            .map(|(k, v)| {
-                let (((start, end), _, _), _) = candidates[*k];
-                let count = v.len() as i64;
-                let duration_secs = (end - start).as_secs_f32();
-                // Weighted sum of count and duration, with more weight given to duration.
-                (-(count as f32 * 0.3 + duration_secs * 0.7), *k)
-            })
-            .collect::<Vec<_>>();
-        best_endings.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-
-        let mut best: SearchResult = Default::default();
-
         if let Some((_, idx)) = best_openings.first() {
             let (((start, end), hash_duration, _), _) = candidates[*idx];
             best.opening = Some((
@@ -516,14 +527,34 @@ impl<P: AsRef<Path> + Ord> Comparator<P> {
                 end - self.time_padding - hash_duration,
             ));
         }
-        if let Some((_, idx)) = best_endings.first() {
-            let (((start, end), hash_duration, _), _) = candidates[*idx];
-            best.ending = Some((
-                // Add a buffer between actual detected times and what we return to users.
-                start + self.time_padding,
-                // Adjust ending time using the configured hash duration.
-                end - self.time_padding - hash_duration,
-            ));
+
+        // Ending search is optional, so we handle it accordingly.
+        if !self.openings_only {
+            let mut best_endings = distinct_matches
+                .iter()
+                .filter(|(k, _)| {
+                    let (_, is_opening) = candidates[**k];
+                    !is_opening
+                })
+                .map(|(k, v)| {
+                    let (((start, end), _, _), _) = candidates[*k];
+                    let count = v.len() as i64;
+                    let duration_secs = (end - start).as_secs_f32();
+                    // Weighted sum of count and duration, with more weight given to duration.
+                    (-(count as f32 * 0.3 + duration_secs * 0.7), *k)
+                })
+                .collect::<Vec<_>>();
+            best_endings.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+            if let Some((_, idx)) = best_endings.first() {
+                let (((start, end), hash_duration, _), _) = candidates[*idx];
+                best.ending = Some((
+                    // Add a buffer between actual detected times and what we return to users.
+                    start + self.time_padding,
+                    // Adjust ending time using the configured hash duration.
+                    end - self.time_padding - hash_duration,
+                ));
+            }
         }
 
         Some(best)
@@ -635,7 +666,11 @@ impl<P: AsRef<Path> + Ord + Sync> Comparator<P> {
             let result = self.find_best_match(&matches);
             if result.is_none() {
                 if display {
-                    println!("No opening or ending found.");
+                    if self.openings_only {
+                        println!("No opening found.");
+                    } else {
+                        println!("No opening or ending found.");
+                    }
                 }
                 continue;
             }

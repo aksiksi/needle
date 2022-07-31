@@ -205,6 +205,7 @@ enum NeedleError needle_audio_comparator_new_default(const char *const *paths,
  */
 enum NeedleError needle_audio_comparator_new(const char *const *paths,
                                              size_t num_paths,
+                                             bool openings_only,
                                              uint16_t hash_match_threshold,
                                              float opening_search_percentage,
                                              float ending_search_percentage,

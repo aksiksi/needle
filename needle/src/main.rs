@@ -160,6 +160,14 @@ enum Commands {
             help = "Do not display results of the search in stdout."
         )]
         no_display: bool,
+
+        #[clap(
+            long,
+            default_value = "false",
+            action(ArgAction::SetTrue),
+            help = "If set, needle will only search for openings."
+        )]
+        openings_only: bool,
     },
 }
 
@@ -303,6 +311,7 @@ fn main() -> needle::Result<()> {
             use_skip_files,
             write_skip_files,
             time_padding,
+            openings_only,
             ref paths,
         } => {
             let videos = args.find_video_files(paths);
@@ -321,6 +330,7 @@ fn main() -> needle::Result<()> {
             let min_ending_duration = Duration::from_secs(min_ending_duration.into());
             let time_padding = Duration::from_secs_f32(time_padding);
             let comparator = audio::Comparator::from_files(videos)
+                .with_openings_only(openings_only)
                 .with_hash_match_threshold(hash_match_threshold as u32)
                 .with_opening_search_percentage(opening_search_percentage)
                 .with_ending_search_percentage(ending_search_percentage)
