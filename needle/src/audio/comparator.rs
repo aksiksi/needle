@@ -31,7 +31,9 @@ struct ComparatorHeapEntry {
     src_match_hash: u32,
     dst_match_hash: u32,
     is_src_opening: bool,
+    is_src_ending: bool,
     is_dst_opening: bool,
+    is_dst_ending: bool,
     src_hash_duration: Duration,
     dst_hash_duration: Duration,
 }
@@ -165,8 +167,10 @@ impl<P: AsRef<Path> + Ord> Comparator<P> {
         dst_min_ending_time: Duration,
         src_hash_duration: Duration,
         dst_hash_duration: Duration,
-        heap: &mut ComparatorHeap,
-    ) {
+    ) -> Vec<ComparatorHeapEntry> {
+        // Heap to keep track of best hash matches in order of length.
+        let mut heap: ComparatorHeap = BinaryHeap::new();
+
         // Build the DP table of substrings.
         let mut table: Vec<Vec<usize>> = vec![vec![0; dst.len() + 1]; src.len() + 1];
         for i in 0..src.len() {
@@ -198,9 +202,12 @@ impl<P: AsRef<Path> + Ord> Comparator<P> {
                     continue;
                 }
 
+                // Figure out whether this is an opening or an ending.
+                //
+                // If the sequence _ends_ before the maximum opening time, it is an opening.
+                // If the sequence _starts_ after the maximum ending time, it is an ending.
                 let (src_start_idx, src_end_idx) = (i - table[i][j], i);
                 let (dst_start_idx, dst_end_idx) = (j - table[i][j], j);
-
                 let (src_start, src_end) = (src[src_start_idx].1, src[src_end_idx].1);
                 let (dst_start, dst_end) = (dst[dst_start_idx].1, dst[dst_end_idx].1);
                 let (is_src_opening, is_src_ending) = (
@@ -231,7 +238,9 @@ impl<P: AsRef<Path> + Ord> Comparator<P> {
                         src_match_hash,
                         dst_match_hash,
                         is_src_opening,
+                        is_src_ending,
                         is_dst_opening,
+                        is_dst_ending,
                         src_hash_duration,
                         dst_hash_duration,
                     };
@@ -244,6 +253,8 @@ impl<P: AsRef<Path> + Ord> Comparator<P> {
 
             i -= 1;
         }
+
+        heap.into()
     }
 
     fn find_opening_and_ending(
@@ -257,9 +268,6 @@ impl<P: AsRef<Path> + Ord> Comparator<P> {
         let dst_hash_data = &dst_hashes.data;
         let src_hash_duration = Duration::from_secs_f32(src_hashes.hash_duration);
         let dst_hash_duration = Duration::from_secs_f32(dst_hashes.hash_duration);
-
-        let mut heap: ComparatorHeap =
-            BinaryHeap::with_capacity(src_hash_data.len() + dst_hash_data.len());
 
         // Figure out the duration limits for opening and endings.
         let src_opening_search_idx =
@@ -275,7 +283,7 @@ impl<P: AsRef<Path> + Ord> Comparator<P> {
         let dst_max_opening_time = dst_hash_data[dst_opening_search_idx].1;
         let dst_min_ending_time = dst_hash_data[dst_ending_search_idx].1;
 
-        self.longest_common_hash_match(
+        let entries = self.longest_common_hash_match(
             src_hash_data,
             dst_hash_data,
             src_max_opening_time,
@@ -284,24 +292,28 @@ impl<P: AsRef<Path> + Ord> Comparator<P> {
             dst_min_ending_time,
             src_hash_duration,
             dst_hash_duration,
-            &mut heap,
         );
 
-        tracing::debug!(heap_size = heap.len(), "finished sliding window analysis");
+        tracing::debug!(
+            num_matches = entries.len(),
+            "finished sliding window analysis"
+        );
 
         let (mut src_valid_openings, mut src_valid_endings) = (Vec::new(), Vec::new());
         let (mut dst_valid_openings, mut dst_valid_endings) = (Vec::new(), Vec::new());
 
-        while let Some(entry) = heap.pop() {
-            let (is_src_opening, is_dst_opening) = (entry.is_src_opening, entry.is_dst_opening);
+        // TODO(aksiksi): Reduce duplication of memory here.
+        for entry in entries {
+            let (is_src_opening, is_src_ending) = (entry.is_src_opening, entry.is_src_ending);
+            let (is_dst_opening, is_dst_ending) = (entry.is_dst_opening, entry.is_dst_ending);
             if is_src_opening {
                 src_valid_openings.push(entry.clone());
-            } else {
+            } else if is_src_ending {
                 src_valid_endings.push(entry.clone());
             }
             if is_dst_opening {
                 dst_valid_openings.push(entry.clone());
-            } else {
+            } else if is_dst_ending {
                 dst_valid_endings.push(entry.clone());
             }
         }
