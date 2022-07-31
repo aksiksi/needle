@@ -419,8 +419,6 @@ impl<P: AsRef<Path> + Ord> Comparator<P> {
     /// The idea is simple: keep track of the longest opening and ending detected among all of the matches
     /// and combine them to determine the best overall match.
     fn find_best_match(&self, matches: &[(&OpeningAndEndingInfo, bool)]) -> Option<SearchResult> {
-        // TODO(aksiksi): Use the number of distinct matches along with duration. For example, it could be that the longest
-        // opening was not actually the opening but instead a montage song found in one or two other episodes.
         if matches.len() == 0 {
             return None;
         }
@@ -449,16 +447,15 @@ impl<P: AsRef<Path> + Ord> Comparator<P> {
             }
         }
 
-        let mut processed = vec![false; candidates.len()];
         let mut distinct_matches: HashMap<usize, HashSet<usize>> = HashMap::new();
 
         for (i, (c, _)) in candidates.iter().enumerate() {
             for (j, (other, _)) in candidates.iter().enumerate() {
-                if i == j || processed[j] {
+                if i == j {
                     continue;
                 }
                 let dist = u32::count_ones(c.2 ^ other.2);
-                if dist >= 10 {
+                if dist >= self.hash_match_threshold {
                     continue;
                 }
                 distinct_matches
@@ -470,7 +467,6 @@ impl<P: AsRef<Path> + Ord> Comparator<P> {
                     .or_insert(HashSet::new())
                     .insert(i);
             }
-            processed[i] = true;
         }
 
         let mut best_openings = distinct_matches
