@@ -103,6 +103,17 @@ impl<P: AsRef<Path>> Default for Comparator<P> {
     }
 }
 
+impl<P: AsRef<Path>> From<Analyzer<P>> for Comparator<P> {
+    /// Constructs a [Comparator] from an [Analyzer]. This allows you to re-use the paths
+    /// and destroy the [Analyzer] when you're done with it.
+    fn from(analyzer: Analyzer<P>) -> Self {
+        let mut comparator = Self::default();
+        // Analyzer would already have sorted the videos.
+        comparator.videos = analyzer.videos;
+        comparator
+    }
+}
+
 impl<P: AsRef<Path> + Ord> Comparator<P> {
     /// Constructs a [Comparator] from a list of video paths.
     pub fn from_files(videos: impl Into<Vec<P>>) -> Self {

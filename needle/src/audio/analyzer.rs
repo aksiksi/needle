@@ -142,7 +142,7 @@ impl Decoder {
 /// ```
 #[derive(Debug)]
 pub struct Analyzer<P: AsRef<Path>> {
-    videos: Vec<P>,
+    pub(crate) videos: Vec<P>,
     threaded_decoding: bool,
     force: bool,
 }
