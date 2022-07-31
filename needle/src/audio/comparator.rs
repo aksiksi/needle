@@ -376,22 +376,14 @@ impl<P: AsRef<Path>> Comparator<P> {
 
     fn search(
         &self,
-        src_path: &Path,
-        dst_path: &Path,
-        frame_hash_map: &HashMap<&Path, FrameHashes>,
+        src_idx: usize,
+        dst_idx: usize,
+        frame_hash_map: &[FrameHashes],
     ) -> Result<OpeningAndEndingInfo> {
         tracing::debug!("started audio comparator");
 
-        let (src_frame_hashes, dst_frame_hashes) = {
-            (
-                frame_hash_map
-                    .get(src_path)
-                    .expect("frame hash data not found for src_path"),
-                frame_hash_map
-                    .get(dst_path)
-                    .expect("frame hash data not found for dst_path"),
-            )
-        };
+        let (src_frame_hashes, dst_frame_hashes) =
+            (&frame_hash_map[src_idx], &frame_hash_map[dst_idx]);
 
         tracing::debug!("starting search for opening and ending");
         let info = self.find_opening_and_ending(src_frame_hashes, dst_frame_hashes);
@@ -533,12 +525,12 @@ impl<P: AsRef<Path> + Sync> Comparator<P> {
         // Build a list of video pairs for actual search. Pairs should only appear once.
         // Given N videos, this will result in: (N * (N-1)) / 2 pairs
         let mut pairs = Vec::new();
-        let mut processed_videos = HashSet::new();
+        let mut processed_videos = vec![false; self.videos.len()];
 
         // Stores frame hash data for each video to be analyzed.
         // We load them all now to be able to handle in-place analysis when the `analyze`
         // flag is passed in to this method.
-        let mut frame_hash_map = HashMap::new();
+        let mut frame_hash_map = Vec::new();
 
         for (i, v1) in self.videos.iter().enumerate() {
             let v1 = v1.as_ref();
@@ -547,44 +539,43 @@ impl<P: AsRef<Path> + Sync> Comparator<P> {
             // TODO(aksiksi): This needs to be fixed.
             if use_skip_files && Self::check_skip_file(v1)? {
                 println!("Skipping {} due to existing skip file...", v1.display());
-                processed_videos.insert(v1);
+                processed_videos[i] = true;
                 continue;
             }
 
             let frame_hashes = FrameHashes::from_video(v1, analyze)?;
 
-            frame_hash_map.insert(v1, frame_hashes);
+            frame_hash_map.push(frame_hashes);
 
-            for (j, v2) in self.videos.iter().enumerate() {
-                let v2 = v2.as_ref();
-                if i == j || processed_videos.contains(v2) {
+            for j in 0..self.videos.len() {
+                if i == j || processed_videos[j] {
                     continue;
                 }
-                pairs.push((v1, v2));
+                pairs.push((i, j));
             }
-            processed_videos.insert(v1);
+            processed_videos[i] = true;
         }
 
         // Perform the search in parallel for all pairs.
         #[cfg(feature = "rayon")]
         let data = pairs
             .par_iter()
-            .map(|(src_path, dst_path)| {
+            .map(|(src_idx, dst_idx)| {
                 (
-                    *src_path,
-                    *dst_path,
-                    self.search(src_path, dst_path, &frame_hash_map).unwrap(),
+                    *src_idx,
+                    *dst_idx,
+                    self.search(*src_idx, *dst_idx, &frame_hash_map).unwrap(),
                 )
             })
             .collect::<Vec<_>>();
         #[cfg(not(feature = "rayon"))]
         let data = pairs
             .iter()
-            .map(|(src_path, dst_path)| {
+            .map(|(src_idx, dst_idx)| {
                 (
-                    *src_path,
-                    *dst_path,
-                    self.search(src_path, dst_path, analyze).unwrap(),
+                    *src_idx,
+                    *dst_idx,
+                    self.search(*src_idx, *dst_idx, &frame_hash_map).unwrap(),
                 )
             })
             .collect::<Vec<_>>();
@@ -592,25 +583,18 @@ impl<P: AsRef<Path> + Sync> Comparator<P> {
         // This map tracks the generated info struct for each video path. A bool is included
         // to allow determining whether the path is a source (true) or dest (false) in the info
         // struct.
-        let mut info_map: BTreeMap<&Path, Vec<(&OpeningAndEndingInfo, bool)>> = BTreeMap::new();
-        for (src_path, dst_path, info) in &data {
-            if let Some(v) = info_map.get_mut(*src_path) {
-                v.push((info, true));
-            } else {
-                info_map.insert(*src_path, vec![(info, true)]);
-            }
-            if let Some(v) = info_map.get_mut(*dst_path) {
-                v.push((info, false));
-            } else {
-                info_map.insert(*dst_path, vec![(info, false)]);
-            }
+        let mut info_map: Vec<Vec<(&OpeningAndEndingInfo, bool)>> = vec![Vec::new(); self.videos.len()];
+        for (src_idx, dst_idx, info) in &data {
+            info_map[*src_idx].push((info, true));
+            info_map[*dst_idx].push((info, false));
         }
 
         let mut match_map = BTreeMap::new();
 
         // For each path, find the best opening and ending candidate among the list
         // of other videos. If required, display the result and write a skip file to disk.
-        for (path, matches) in info_map {
+        for (idx, matches) in info_map.into_iter().enumerate() {
+            let path = self.videos[idx].as_ref().to_owned();
             let result = self.find_best_match(&matches);
             if result.is_none() {
                 println!("No opening or ending found for: {}", path.display());
@@ -618,13 +602,12 @@ impl<P: AsRef<Path> + Sync> Comparator<P> {
             }
             let result = result.unwrap();
             if display {
-                self.display_opening_ending_info(path, result);
+                self.display_opening_ending_info(&path, result);
             }
             if write_skip_files {
-                self.create_skip_file(path, result)?;
+                self.create_skip_file(&path, result)?;
             }
-
-            match_map.insert(path.to_owned(), result.clone());
+            match_map.insert(path, result.clone());
         }
 
         Ok(match_map)
