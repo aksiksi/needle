@@ -88,11 +88,12 @@ impl<P: AsRef<Path>> Default for Comparator<P> {
     }
 }
 
-impl<P: AsRef<Path>> Comparator<P> {
+impl<P: AsRef<Path> + Ord> Comparator<P> {
     /// Constructs a [Comparator] from a list of video paths.
     pub fn from_files(videos: impl Into<Vec<P>>) -> Self {
         let mut comparator = Self::default();
         comparator.videos = videos.into();
+        comparator.videos.sort();
         comparator
     }
 
@@ -508,7 +509,7 @@ impl<P: AsRef<Path>> Comparator<P> {
     }
 }
 
-impl<P: AsRef<Path> + Sync> Comparator<P> {
+impl<P: AsRef<Path> + Ord + Sync> Comparator<P> {
     /// Runs the comparator.
     ///
     /// If `analyze` is set to true, an `Analyzer` will be built for each video file and run in-place.
