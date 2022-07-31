@@ -54,6 +54,15 @@ struct OpeningAndEndingInfo {
     dst_endings: Vec<ComparatorHeapEntry>,
 }
 
+impl OpeningAndEndingInfo {
+    pub fn is_empty(&self) -> bool {
+        self.src_openings.is_empty()
+            && self.dst_openings.is_empty()
+            && self.src_endings.is_empty()
+            && self.dst_endings.is_empty()
+    }
+}
+
 /// Represents a single result for a video file. This is output by [Comparator::run].
 #[derive(Copy, Clone, Debug, Default)]
 pub struct SearchResult {
@@ -568,6 +577,7 @@ impl<P: AsRef<Path> + Ord + Sync> Comparator<P> {
                     self.search(*src_idx, *dst_idx, &frame_hash_map).unwrap(),
                 )
             })
+            .filter(|(_, _, info)| !info.is_empty())
             .collect::<Vec<_>>();
         #[cfg(not(feature = "rayon"))]
         let data = pairs
@@ -579,12 +589,14 @@ impl<P: AsRef<Path> + Ord + Sync> Comparator<P> {
                     self.search(*src_idx, *dst_idx, &frame_hash_map).unwrap(),
                 )
             })
+            .filter(|(_, _, info)| !info.is_empty())
             .collect::<Vec<_>>();
 
         // This map tracks the generated info struct for each video path. A bool is included
         // to allow determining whether the path is a source (true) or dest (false) in the info
         // struct.
-        let mut info_map: Vec<Vec<(&OpeningAndEndingInfo, bool)>> = vec![Vec::new(); self.videos.len()];
+        let mut info_map: Vec<Vec<(&OpeningAndEndingInfo, bool)>> =
+            vec![Vec::new(); self.videos.len()];
         for (src_idx, dst_idx, info) in &data {
             info_map[*src_idx].push((info, true));
             info_map[*dst_idx].push((info, false));
