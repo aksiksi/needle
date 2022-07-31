@@ -40,8 +40,8 @@ impl Display for ComparatorHeapEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "score: {}, src_longest_run: {:?}, dst_longest_run: {:?}",
-            self.score, self.src_longest_run, self.dst_longest_run
+            "score: {}, src_longest_run: {:?}, dst_longest_run: {:?}, src_match_hash: {}, dst_match_hash: {}",
+            self.score, self.src_longest_run, self.dst_longest_run, self.src_match_hash, self.dst_match_hash,
         )
     }
 }
@@ -411,60 +411,108 @@ impl<P: AsRef<Path>> Comparator<P> {
             return None;
         }
 
-        let mut result: SearchResult = Default::default();
-        let mut best_opening_duration = Duration::ZERO;
-        let mut best_ending_duration = Duration::ZERO;
+        let mut candidates = Vec::new();
 
         for (m, is_source) in matches {
-            let opening;
-            let ending;
             if *is_source {
-                opening = m
-                    .src_openings
-                    .first()
-                    .map(|e| (e.src_longest_run, e.src_hash_duration));
-                ending = m
-                    .src_endings
-                    .first()
-                    .map(|e| (e.src_longest_run, e.src_hash_duration));
-            } else {
-                opening = m
-                    .dst_openings
-                    .first()
-                    .map(|e| (e.dst_longest_run, e.dst_hash_duration));
-                ending = m
-                    .dst_endings
-                    .first()
-                    .map(|e| (e.dst_longest_run, e.dst_hash_duration));
-            }
-
-            if let Some(((start, end), hash_duration)) = opening {
-                let duration = end - start;
-                if duration >= best_opening_duration {
-                    result.opening = Some((
-                        // Add a buffer between actual detected times and what we return to users.
-                        start + self.time_padding,
-                        // Adjust ending time using the configured hash duration.
-                        end - self.time_padding - hash_duration,
-                    ));
-                    best_opening_duration = duration;
+                for e in &m.src_openings {
+                    let o = (e.src_longest_run, e.src_hash_duration, e.src_match_hash);
+                    candidates.push((o, true));
                 }
-            }
-            if let Some(((start, end), hash_duration)) = ending {
-                let duration = end - start;
-                if duration >= best_ending_duration {
-                    result.ending = Some((
-                        // Add a buffer between actual detected times and what we return to users.
-                        start + self.time_padding,
-                        // Adjust ending time using the configured hash duration.
-                        end - self.time_padding - hash_duration,
-                    ));
-                    best_ending_duration = duration;
+                for e in &m.src_endings {
+                    let o = (e.src_longest_run, e.src_hash_duration, e.src_match_hash);
+                    candidates.push((o, false));
+                }
+            } else {
+                for e in &m.dst_openings {
+                    let o = (e.dst_longest_run, e.dst_hash_duration, e.dst_match_hash);
+                    candidates.push((o, true));
+                }
+                for e in &m.dst_endings {
+                    let o = (e.dst_longest_run, e.dst_hash_duration, e.dst_match_hash);
+                    candidates.push((o, false));
                 }
             }
         }
 
-        Some(result)
+        let mut processed = vec![false; candidates.len()];
+        let mut distinct_matches: HashMap<usize, HashSet<usize>> = HashMap::new();
+
+        for (i, (c, _)) in candidates.iter().enumerate() {
+            for (j, (other, _)) in candidates.iter().enumerate() {
+                if i == j || processed[j] {
+                    continue;
+                }
+                let dist = u32::count_ones(c.2 ^ other.2);
+                if dist >= 10 {
+                    continue;
+                }
+                distinct_matches
+                    .entry(i)
+                    .or_insert(HashSet::new())
+                    .insert(j);
+                distinct_matches
+                    .entry(j)
+                    .or_insert(HashSet::new())
+                    .insert(i);
+            }
+            processed[i] = true;
+        }
+
+        let mut best_openings = distinct_matches
+            .iter()
+            .filter(|(k, _)| {
+                let (_, is_opening) = candidates[**k];
+                is_opening
+            })
+            .map(|(k, v)| {
+                let (((start, end), _, _), _) = candidates[*k];
+                let count = v.len() as i64;
+                let duration_secs = (end - start).as_secs() as i64;
+                // Sort by count followed by duration
+                (-count, -duration_secs, *k)
+            })
+            .collect::<Vec<_>>();
+        best_openings.sort();
+
+        let mut best_endings = distinct_matches
+            .iter()
+            .filter(|(k, _)| {
+                let (_, is_opening) = candidates[**k];
+                !is_opening
+            })
+            .map(|(k, v)| {
+                let (((start, end), _, _), _) = candidates[*k];
+                let count = v.len() as i64;
+                let duration_secs = (end - start).as_secs() as i64;
+                // Sort by count followed by duration
+                (-count, -duration_secs, *k)
+            })
+            .collect::<Vec<_>>();
+        best_endings.sort();
+
+        let mut best: SearchResult = Default::default();
+
+        if let Some((_, _, idx)) = best_openings.first() {
+            let (((start, end), hash_duration, _), _) = candidates[*idx];
+            best.opening = Some((
+                // Add a buffer between actual detected times and what we return to users.
+                start + self.time_padding,
+                // Adjust ending time using the configured hash duration.
+                end - self.time_padding - hash_duration,
+            ));
+        }
+        if let Some((_, _, idx)) = best_endings.first() {
+            let (((start, end), hash_duration, _), _) = candidates[*idx];
+            best.ending = Some((
+                // Add a buffer between actual detected times and what we return to users.
+                start + self.time_padding,
+                // Adjust ending time using the configured hash duration.
+                end - self.time_padding - hash_duration,
+            ));
+        }
+
+        Some(best)
     }
 }
 
