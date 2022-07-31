@@ -653,8 +653,12 @@ mod test {
 
     #[test]
     fn test_comparator() {
+        // TODO(aksiksi): Make this test actually do something. Right now, it doesn't really detect anything
+        // because the clips are too short.
         let paths = get_sample_paths();
-        let comparator = Comparator::from_files(paths);
+        let comparator = Comparator::from_files(paths)
+            .with_min_opening_duration(Duration::from_millis(300))
+            .with_min_ending_duration(Duration::from_millis(300));
         let data = comparator.run(true, true, false, false).unwrap();
         assert_eq!(data.len(), 2);
     }
