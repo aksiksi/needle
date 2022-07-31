@@ -455,9 +455,6 @@ impl<P: AsRef<Path> + Ord> Comparator<P> {
 
         for (i, (c, _)) in candidates.iter().enumerate() {
             for (j, (other, _)) in candidates.iter().enumerate() {
-                if i == j {
-                    continue;
-                }
                 let dist = u32::count_ones(c.2 ^ other.2);
 
                 // Add a small bias to the hash match threshold when comparing sequence hashes.
