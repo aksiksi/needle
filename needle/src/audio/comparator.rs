@@ -14,7 +14,7 @@ use rayon::prelude::*;
 use crate::util;
 use crate::Result;
 
-use super::FrameHashes;
+use super::{Analyzer, FrameHashes};
 
 #[derive(serde::Deserialize, serde::Serialize)]
 struct SkipFile {
@@ -122,7 +122,9 @@ impl<P: AsRef<Path> + Ord> Comparator<P> {
         comparator.videos.sort();
         comparator
     }
+}
 
+impl<P: AsRef<Path>> Comparator<P> {
     /// Returns the video paths used by this comparator.
     pub fn videos(&self) -> &[P] {
         &self.videos
@@ -572,16 +574,15 @@ impl<P: AsRef<Path> + Ord> Comparator<P> {
     }
 }
 
-impl<P: AsRef<Path> + Ord + Sync> Comparator<P> {
-    /// Runs the comparator.
+impl<P: AsRef<Path> + Sync> Comparator<P> {
+    /// Exactly the same as [Self::run], but uses the provided [FrameHashes] instead of reading
+    /// from disk or analyzing in-place.
     ///
-    /// * If `analyze` is set to true, an `Analyzer` will be built for each video file and run in-place.
-    /// * If `use_skip_files` is set, if a skip file already exists for a video, the video will be skipped during this run. If `write_skip_files`
-    /// is set, a skip file will be written to disk once the comparator is completed.
-    /// * If `display` is set, the final results will be printed to stdout.
-    pub fn run(
+    /// Note that the provided [FrameHashes] **must** be generated from an [Analyzer] using the
+    /// _same_ list of video paths.
+    pub fn run_with_frame_hashes(
         &self,
-        analyze: bool,
+        frame_hashes: Vec<FrameHashes>,
         display: bool,
         use_skip_files: bool,
         write_skip_files: bool,
@@ -592,18 +593,7 @@ impl<P: AsRef<Path> + Ord + Sync> Comparator<P> {
         let mut pairs = Vec::new();
         let mut processed_videos = vec![false; self.videos.len()];
 
-        // Stores frame hash data for each video to be analyzed.
-        // We load them all now to be able to handle in-place analysis when the `analyze`
-        // flag is passed in to this method.
-        let mut frame_hash_map = Vec::new();
-
-        for (i, v1) in self.videos.iter().enumerate() {
-            let v1 = v1.as_ref();
-
-            let frame_hashes = FrameHashes::from_video(v1, analyze)?;
-
-            frame_hash_map.push(frame_hashes);
-
+        for i in 0..self.videos.len() {
             for j in 0..self.videos.len() {
                 if i == j || processed_videos[j] {
                     continue;
@@ -625,7 +615,7 @@ impl<P: AsRef<Path> + Ord + Sync> Comparator<P> {
                         (
                             *src_idx,
                             *dst_idx,
-                            self.search(*src_idx, *dst_idx, &frame_hash_map).unwrap(),
+                            self.search(*src_idx, *dst_idx, &frame_hashes).unwrap(),
                         )
                     })
                     .filter(|(_, _, info)| !info.is_empty())
@@ -639,7 +629,7 @@ impl<P: AsRef<Path> + Ord + Sync> Comparator<P> {
                         (
                             *src_idx,
                             *dst_idx,
-                            self.search(*src_idx, *dst_idx, &frame_hash_map).unwrap(),
+                            self.search(*src_idx, *dst_idx, &frame_hashes).unwrap(),
                         )
                     })
                     .filter(|(_, _, info)| !info.is_empty()),
@@ -696,6 +686,40 @@ impl<P: AsRef<Path> + Ord + Sync> Comparator<P> {
         }
 
         Ok(match_map)
+    }
+
+    /// Runs the comparator.
+    ///
+    /// * If `analyze` is set to true, an `Analyzer` will be built for each video file and run in-place.
+    /// * If `use_skip_files` is set, if a skip file already exists for a video, the video will be skipped during this run. If `write_skip_files`
+    /// is set, a skip file will be written to disk once the comparator is completed.
+    /// * If `display` is set, the final results will be printed to stdout.
+    pub fn run(
+        &self,
+        analyze: bool,
+        display: bool,
+        use_skip_files: bool,
+        write_skip_files: bool,
+        threading: bool,
+    ) -> Result<BTreeMap<PathBuf, SearchResult>> {
+        // Stores frame hash data for each video to be analyzed.
+        // We load them all now to be able to handle in-place analysis when the `analyze`
+        // flag is passed in to this method.
+        let mut frame_hashes = Vec::with_capacity(self.videos.len());
+
+        for video in &self.videos {
+            let video = video.as_ref();
+            let f = FrameHashes::from_video(video, analyze)?;
+            frame_hashes.push(f);
+        }
+
+        self.run_with_frame_hashes(
+            frame_hashes,
+            display,
+            use_skip_files,
+            write_skip_files,
+            threading,
+        )
     }
 }
 
