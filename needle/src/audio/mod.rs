@@ -8,12 +8,12 @@ pub use comparator::{Comparator, SearchResult};
 ///
 /// This is used to determine if two frame hashes match. The value of a frame hash ranges
 /// from 0 (exact match) to 32 (no match).
-pub const DEFAULT_HASH_MATCH_THRESHOLD: u16 = 15;
+pub const DEFAULT_HASH_MATCH_THRESHOLD: u16 = 10;
 
 /// Default opening search percentage.
 ///
 /// If a match is found in the first percentage of the video, it is considered as an opening.
-pub const DEFAULT_OPENING_SEARCH_PERCENTAGE: f32 = 0.33;
+pub const DEFAULT_OPENING_SEARCH_PERCENTAGE: f32 = 0.50;
 
 /// Default ending search percentage.
 ///
