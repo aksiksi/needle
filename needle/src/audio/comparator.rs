@@ -173,17 +173,16 @@ impl<P: AsRef<Path>> Comparator<P> {
     }
 
     #[inline]
-    fn compute_hash_for_match(hashes: &[(u32, Duration)], (start, end): (usize, usize)) -> u32 {
-        let hashes: Vec<u32> = hashes.iter().map(|t| t.0).collect();
-        chromaprint::simhash::simhash32(&hashes[start..end + 1])
+    fn compute_hash_for_match(hashes: &FrameHashes, (start, end): (usize, usize)) -> u32 {
+        chromaprint::simhash::simhash32(&hashes.data()[start..end + 1])
     }
 
     /// Runs a LCS (longest common substring) search between the two sets of hashes. This runs in
     /// O(n * m) time.
     fn longest_common_hash_match(
         &self,
-        src: &[(u32, Duration)],
-        dst: &[(u32, Duration)],
+        src: &FrameHashes,
+        dst: &FrameHashes,
         src_max_opening_time: Duration,
         src_min_ending_time: Duration,
         dst_max_opening_time: Duration,
@@ -198,7 +197,7 @@ impl<P: AsRef<Path>> Comparator<P> {
         let mut table: Vec<Vec<usize>> = vec![vec![0; dst.len() + 1]; src.len() + 1];
         for i in 0..src.len() {
             for j in 0..dst.len() {
-                let (src_hash, dst_hash) = (src[i].0, dst[j].0);
+                let (src_hash, dst_hash) = (src.data()[i], dst.data()[j]);
                 if i == 0 || j == 0 {
                     table[i][j] = 0;
                 } else if u32::count_ones(src_hash ^ dst_hash) <= self.hash_match_threshold {
@@ -231,8 +230,8 @@ impl<P: AsRef<Path>> Comparator<P> {
                 // If the sequence _starts_ after the maximum ending time, it is an ending.
                 let (src_start_idx, src_end_idx) = (i - table[i][j], i);
                 let (dst_start_idx, dst_end_idx) = (j - table[i][j], j);
-                let (src_start, src_end) = (src[src_start_idx].1, src[src_end_idx].1);
-                let (dst_start, dst_end) = (dst[dst_start_idx].1, dst[dst_end_idx].1);
+                let (src_start, src_end) = (src.get(src_start_idx).1, src.get(src_end_idx).1);
+                let (dst_start, dst_end) = (dst.get(dst_start_idx).1, dst.get(dst_end_idx).1);
                 let (is_src_opening, is_src_ending) = (
                     src_end < src_max_opening_time,
                     src_start > src_min_ending_time,
@@ -299,33 +298,31 @@ impl<P: AsRef<Path>> Comparator<P> {
 
     fn find_opening_and_ending(
         &self,
-        src_hashes: &super::analyzer::FrameHashes,
-        dst_hashes: &super::analyzer::FrameHashes,
+        src_hashes: &FrameHashes,
+        dst_hashes: &FrameHashes,
     ) -> OpeningAndEndingInfo {
         let _g = tracing::span!(tracing::Level::TRACE, "find_opening_and_ending");
 
-        let src_hash_data = &src_hashes.data;
-        let dst_hash_data = &dst_hashes.data;
         let src_hash_duration = Duration::from_secs_f32(src_hashes.hash_duration);
         let dst_hash_duration = Duration::from_secs_f32(dst_hashes.hash_duration);
 
         // Figure out the duration limits for opening and endings.
         let src_opening_search_idx =
-            ((src_hash_data.len() - 1) as f32 * self.opening_search_percentage) as usize;
+            ((src_hashes.len() - 1) as f32 * self.opening_search_percentage) as usize;
         let src_ending_search_idx =
-            ((src_hash_data.len() - 1) as f32 * (1.0 - self.ending_search_percentage)) as usize;
+            ((src_hashes.len() - 1) as f32 * (1.0 - self.ending_search_percentage)) as usize;
         let dst_opening_search_idx =
-            ((dst_hash_data.len() - 1) as f32 * self.opening_search_percentage) as usize;
+            ((dst_hashes.len() - 1) as f32 * self.opening_search_percentage) as usize;
         let dst_ending_search_idx =
-            ((dst_hash_data.len() - 1) as f32 * (1.0 - self.ending_search_percentage)) as usize;
-        let src_max_opening_time = src_hash_data[src_opening_search_idx].1;
-        let src_min_ending_time = src_hash_data[src_ending_search_idx].1;
-        let dst_max_opening_time = dst_hash_data[dst_opening_search_idx].1;
-        let dst_min_ending_time = dst_hash_data[dst_ending_search_idx].1;
+            ((dst_hashes.len() - 1) as f32 * (1.0 - self.ending_search_percentage)) as usize;
+        let src_max_opening_time = src_hashes.get(src_opening_search_idx).1;
+        let src_min_ending_time = src_hashes.get(src_ending_search_idx).1;
+        let dst_max_opening_time = dst_hashes.get(dst_opening_search_idx).1;
+        let dst_min_ending_time = dst_hashes.get(dst_ending_search_idx).1;
 
         let entries = self.longest_common_hash_match(
-            src_hash_data,
-            dst_hash_data,
+            src_hashes,
+            dst_hashes,
             src_max_opening_time,
             src_min_ending_time,
             dst_max_opening_time,
@@ -535,7 +532,7 @@ impl<P: AsRef<Path>> Comparator<P> {
             let (((start, end), hash_duration, _), _) = candidates[*idx];
             best.opening = Some((
                 // Add a buffer between actual detected times and what we return to users.
-                start + self.time_padding,
+                start + self.time_padding - hash_duration,
                 // Adjust ending time using the configured hash duration.
                 end - self.time_padding - hash_duration,
             ));
@@ -563,7 +560,7 @@ impl<P: AsRef<Path>> Comparator<P> {
                 let (((start, end), hash_duration, _), _) = candidates[*idx];
                 best.ending = Some((
                     // Add a buffer between actual detected times and what we return to users.
-                    start + self.time_padding,
+                    start + self.time_padding - hash_duration,
                     // Adjust ending time using the configured hash duration.
                     end - self.time_padding - hash_duration,
                 ));
@@ -740,10 +737,12 @@ mod test {
         // TODO(aksiksi): Make this test actually do something. Right now, it doesn't really detect anything
         // because the clips are too short.
         let paths = get_sample_paths();
-        let comparator = Comparator::from_files(paths)
+        let analyzer = Analyzer::from_files(paths, false, false);
+        let frame_hashes = analyzer.run(0.1, 3.0, false, false).unwrap();
+        let comparator = Comparator::from(analyzer)
             .with_min_opening_duration(Duration::from_millis(300))
             .with_min_ending_duration(Duration::from_millis(300));
-        let data = comparator.run(true, true, false, false, false).unwrap();
+        let data = comparator.run_with_frame_hashes(frame_hashes, true, false, false, false).unwrap();
         assert_eq!(data.len(), 2);
     }
 }

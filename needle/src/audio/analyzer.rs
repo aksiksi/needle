@@ -24,7 +24,7 @@ use crate::{Error, Result};
 pub struct FrameHashes {
     pub(crate) hash_period: f32,
     pub(crate) hash_duration: f32,
-    pub(crate) data: Vec<(u32, Duration)>,
+    pub(crate) data: Vec<u32>,
     pub(crate) md5: String,
 }
 
@@ -66,6 +66,19 @@ impl FrameHashes {
             tracing::debug!("completed in-place video analysis for {}", video.display());
             Ok(frame_hashes)
         }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    pub(crate) fn data(&self) -> &[u32] {
+        &self.data
+    }
+
+    pub(crate) fn get(&self, index: usize) -> (u32, Duration) {
+        let d = Duration::from_secs_f32(self.hash_duration + self.hash_period * index as f32);
+        (self.data[index], d)
     }
 }
 
@@ -199,7 +212,7 @@ impl<P: AsRef<Path>> Analyzer<P> {
         hash_duration: Duration,
         hash_period: Duration,
         threaded: bool,
-    ) -> Result<Vec<(u32, Duration)>> {
+    ) -> Result<Vec<u32>> {
         let span = tracing::span!(tracing::Level::TRACE, "process_frames");
         let _enter = span.enter();
 
@@ -280,9 +293,9 @@ impl<P: AsRef<Path>> Analyzer<P> {
 
                     // Feed the i16 samples to Chromaprint. Since we are using the default sampling rate,
                     // Chromaprint will _not_ do any resampling internally.
-                    for (raw_fingerprint, ts) in fingerprinter.feed(samples).unwrap() {
+                    for (raw_fingerprint, _) in fingerprinter.feed(samples).unwrap() {
                         let hash = chromaprint::simhash::simhash32(raw_fingerprint.get());
-                        hashes.push((hash, ts));
+                        hashes.push(hash);
                     }
 
                     if delay.is_none() {
