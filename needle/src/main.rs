@@ -337,7 +337,13 @@ fn main() -> needle::Result<()> {
                 .with_min_opening_duration(min_opening_duration)
                 .with_min_ending_duration(min_ending_duration)
                 .with_time_padding(time_padding);
-            comparator.run(analyze, !no_display, use_skip_files, write_skip_files, !args.no_threading)?;
+            comparator.run(
+                analyze,
+                !no_display,
+                use_skip_files,
+                write_skip_files,
+                !args.no_threading,
+            )?;
         }
         Commands::Info => {
             println!("FFmpeg version: {}", needle::util::ffmpeg_version_string());

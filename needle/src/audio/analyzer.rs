@@ -25,10 +25,7 @@ pub struct FrameHashes {
     pub(crate) hash_period: f32,
     pub(crate) hash_duration: f32,
     pub(crate) data: Vec<(u32, Duration)>,
-    /// Size of the video, in bytes. This is used as a primitive hash
-    /// to detect if the video file has changed since this data was
-    /// generated.
-    pub(crate) video_size: usize,
+    pub(crate) md5: String,
 }
 
 impl FrameHashes {
@@ -313,12 +310,12 @@ impl<P: AsRef<Path>> Analyzer<P> {
         let path = path.as_ref();
         let frame_hash_path = path.with_extension(super::FRAME_HASH_DATA_FILE_EXT);
 
-        // Check if we've already analyzed this video.
-        let video_size = std::fs::File::open(&path)?.metadata()?.len() as usize;
+        // Check if we've already analyzed this video by comparing MD5 hashes.
+        let md5 = crate::util::compute_header_md5sum(path)?;
         if !self.force {
             if let Ok(f) = std::fs::File::open(&frame_hash_path) {
                 let data: FrameHashes = bincode::deserialize_from(&f).unwrap();
-                if data.video_size == video_size {
+                if data.md5 == md5 {
                     println!("Skipping analysis for {}...", path.display());
                     return Ok(data);
                 }
@@ -348,7 +345,7 @@ impl<P: AsRef<Path>> Analyzer<P> {
             hash_period,
             hash_duration,
             data: frame_hashes,
-            video_size,
+            md5,
         };
 
         // Write results to disk.

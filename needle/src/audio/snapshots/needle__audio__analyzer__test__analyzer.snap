@@ -1,5 +1,5 @@
 ---
-source: needle/src/audio/analyzer.rs
+source: src/audio/analyzer.rs
 expression: data
 ---
 [
@@ -40,7 +40,7 @@ expression: data
                 5.115646145s,
             ),
         ],
-        video_size: 2848208,
+        md5: "759c6a520c5ce70359fdff38c4be6b98",
     },
     FrameHashes {
         hash_period: 0.3,
@@ -67,6 +67,6 @@ expression: data
                 4.207165456s,
             ),
         ],
-        video_size: 2848248,
+        md5: "759c6a520c5ce70359fdff38c4be6b98",
     },
 ]
