@@ -108,23 +108,19 @@ impl<P: AsRef<Path>> From<Analyzer<P>> for Comparator<P> {
     /// and destroy the [Analyzer] when you're done with it.
     fn from(analyzer: Analyzer<P>) -> Self {
         let mut comparator = Self::default();
-        // Analyzer would already have sorted the videos.
         comparator.videos = analyzer.videos;
         comparator
     }
 }
 
-impl<P: AsRef<Path> + Ord> Comparator<P> {
+impl<P: AsRef<Path>> Comparator<P> {
     /// Constructs a [Comparator] from a list of video paths.
     pub fn from_files(videos: impl Into<Vec<P>>) -> Self {
         let mut comparator = Self::default();
         comparator.videos = videos.into();
-        comparator.videos.sort();
         comparator
     }
-}
 
-impl<P: AsRef<Path>> Comparator<P> {
     /// Returns the video paths used by this comparator.
     pub fn videos(&self) -> &[P] {
         &self.videos
@@ -528,7 +524,7 @@ impl<P: AsRef<Path>> Comparator<P> {
                 (-(count as f32 * 0.3 + duration_secs * 0.7), *k)
             })
             .collect::<Vec<_>>();
-        // We can't used .sort() because f32 is not `Ord`.
+        // We can't use .sort() because f32 is not `Ord`.
         best_openings.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         if let Some((_, idx)) = best_openings.first() {

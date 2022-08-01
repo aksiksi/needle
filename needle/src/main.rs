@@ -289,7 +289,8 @@ fn main() -> needle::Result<()> {
             ref paths,
         } => match mode {
             Mode::Audio => {
-                let videos = args.find_video_files(paths);
+                let mut videos = args.find_video_files(paths);
+                videos.sort();
                 let analyzer = audio::Analyzer::from_files(videos, threaded_decoding, force);
                 analyzer.run(hash_period, hash_duration, true, !args.no_threading)?;
             }
@@ -314,7 +315,8 @@ fn main() -> needle::Result<()> {
             openings_only,
             ref paths,
         } => {
-            let videos = args.find_video_files(paths);
+            let mut videos = args.find_video_files(paths);
+            videos.sort();
             if videos.len() < 2 {
                 let mut cmd = Cli::command();
                 cmd.error(
