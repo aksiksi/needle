@@ -43,7 +43,7 @@ Run the same search as above, but write the results to a JSON file stored alongs
 $ needle search --analyze --no-display --write-skip-files ~/Movies/land-of-lustrous-ep1.mkv ~/Movies/land-of-lustrous-ep2.mkv ~/Movies/land-of-lustrous-ep3.mkv
 
 $ cat ~/Movies/land-of-lustrous-ep1.needle.skip.json
-{"ending":[1332.3355712890625,1422.276611328125],"opening":null}
+{"opening":null,"ending":[1331.6644,1419.0249],"md5":"14bfa97f85d86f74e1ab5a26066f9181"}%
 ```
 
 ## Overview
@@ -65,7 +65,7 @@ $ ls -la ~/Movies/land-of-lustrous-*.needle.bin
 -rw-r--r--  1 aksiksi  staff  76128 Jul  2 20:09 ~/Movies/land-of-lustrous-ep3.needle.bin
 ```
 
-As you can see, the files are quite small: on the order of 76 KB for ~20 minutes of audio. Note that this size will change based on how you configure the analyzer.
+The frame hash files are quite small: on the order of 4 KB per minute of audio. Note that the size will change based on how you configure the analyzer.
 
 Once we have these pre-computed files, we can re-run the search step, but this time we can omit the `--analyze` flag:
 
