@@ -2,9 +2,9 @@ extern crate chromaprint_rust;
 #[cfg(feature = "rayon")]
 extern crate rayon;
 
-use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::fmt::Display;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 use chromaprint_rust as chromaprint;
@@ -583,7 +583,7 @@ impl<P: AsRef<Path> + Sync> Comparator<P> {
         use_skip_files: bool,
         write_skip_files: bool,
         threading: bool,
-    ) -> Result<BTreeMap<PathBuf, SearchResult>> {
+    ) -> Result<Vec<SearchResult>> {
         // Build a list of video pairs for actual search. Pairs should only appear once.
         // Given N videos, this will result in: (N * (N-1)) / 2 pairs
         let mut pairs = Vec::new();
@@ -642,10 +642,9 @@ impl<P: AsRef<Path> + Sync> Comparator<P> {
             info_map[*dst_idx].push((info, false));
         }
 
-        let mut match_map = BTreeMap::new();
-
         // For each path, find the best opening and ending candidate among the list
         // of other videos. If required, display the result and write a skip file to disk.
+        let mut results = Vec::new();
         for (idx, matches) in info_map.into_iter().enumerate() {
             let path = self.videos[idx].as_ref().to_owned();
             if display {
@@ -678,10 +677,10 @@ impl<P: AsRef<Path> + Sync> Comparator<P> {
             if write_skip_files {
                 self.create_skip_file(&path, result)?;
             }
-            match_map.insert(path, result.clone());
+            results.push(result);
         }
 
-        Ok(match_map)
+        Ok(results)
     }
 
     /// Runs the comparator.
@@ -697,7 +696,7 @@ impl<P: AsRef<Path> + Sync> Comparator<P> {
         use_skip_files: bool,
         write_skip_files: bool,
         threading: bool,
-    ) -> Result<BTreeMap<PathBuf, SearchResult>> {
+    ) -> Result<Vec<SearchResult>> {
         // Stores frame hash data for each video to be analyzed.
         // We load them all now to be able to handle in-place analysis when the `analyze`
         // flag is passed in to this method.
@@ -722,6 +721,8 @@ impl<P: AsRef<Path> + Sync> Comparator<P> {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    use std::path::PathBuf;
 
     fn get_sample_paths() -> Vec<PathBuf> {
         let resources = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources");

@@ -58,8 +58,8 @@
 //! let results = comparator.run_with_frame_hashes(frame_hashes, true, false, false, true).unwrap();
 //!
 //! dbg!(results);
-//! // {
-//! //     "/tmp/land-of-lustrous-ep1.mkv": SearchResult {
+//! // [
+//! //     SearchResult {
 //! //         opening: None,
 //! //         ending: Some(
 //! //             (
@@ -68,7 +68,7 @@
 //! //             ),
 //! //         ),
 //! //     },
-//! //     "/tmp/land-of-lustrous-ep2.mkv": SearchResult {
+//! //     SearchResult {
 //! //         opening: Some(
 //! //             (
 //! //                 44.718820458s,
@@ -82,7 +82,7 @@
 //! //             ),
 //! //         ),
 //! //     },
-//! //     "/tmp/land-of-lustrous-ep3.mkv": SearchResult {
+//! //     SearchResult {
 //! //         opening: Some(
 //! //             (
 //! //                 41.11111074s,
@@ -96,7 +96,7 @@
 //! //             ),
 //! //         ),
 //! //     },
-//! // },
+//! // ]
 //! ```
 //!
 //! [Comparator::run_with_frame_hashes](crate::audio::Comparator::run_with_frame_hashes) runs a search for openings and endings
