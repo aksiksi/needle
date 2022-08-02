@@ -57,6 +57,11 @@ typedef enum NeedleError {
 } NeedleError;
 
 /**
+ * TODO
+ */
+typedef struct FrameHashes FrameHashes;
+
+/**
  * Wraps [needle::audio::Analyzer] with a C API.
  *
  * # Example
@@ -173,6 +178,15 @@ enum NeedleError needle_audio_analyzer_new(const char *const *paths,
                                            const struct NeedleAudioAnalyzer **output);
 
 /**
+ * Returns the [FrameHashes] for the video at the given index.
+ *
+ * Note that this index must match the index of the video provided to the [Analyzer].
+ */
+enum NeedleError needle_audio_analyzer_get_frame_hashes(const struct NeedleAudioAnalyzer *analyzer,
+                                                        size_t index,
+                                                        const struct FrameHashes **output);
+
+/**
  * Free the provided [NeedleAudioAnalyzer].
  */
 void needle_audio_analyzer_free(const struct NeedleAudioAnalyzer *analyzer);
@@ -185,7 +199,7 @@ void needle_audio_analyzer_print_paths(const struct NeedleAudioAnalyzer *analyze
 /**
  * Run the [NeedleAudioAnalyzer].
  */
-enum NeedleError needle_audio_analyzer_run(const struct NeedleAudioAnalyzer *analyzer,
+enum NeedleError needle_audio_analyzer_run(struct NeedleAudioAnalyzer *analyzer,
                                            float hash_period,
                                            float hash_duration,
                                            bool persist,

@@ -291,6 +291,16 @@ fn get_paths_from_raw(
     Ok(paths)
 }
 
+/// TODO
+#[derive(Debug)]
+pub struct FrameHashes(audio::FrameHashes);
+
+impl From<audio::FrameHashes> for FrameHashes {
+    fn from(inner: audio::FrameHashes) -> Self {
+        Self(inner)
+    }
+}
+
 /// Wraps [needle::audio::Analyzer] with a C API.
 ///
 /// # Example
@@ -322,7 +332,10 @@ fn get_paths_from_raw(
 /// needle_audio_analyzer_free(analyzer);
 /// ```
 #[derive(Debug, Default)]
-pub struct NeedleAudioAnalyzer(audio::Analyzer<PathBuf>);
+pub struct NeedleAudioAnalyzer {
+    inner: audio::Analyzer<PathBuf>,
+    frame_hashes: Vec<FrameHashes>,
+}
 
 /// Constructs a new [NeedleAudioAnalyzer] with sane defaults.
 #[no_mangle]
@@ -359,7 +372,36 @@ pub extern "C" fn needle_audio_analyzer_new(
     // 1) Output pointer is not null.
     // 2) We are constructing the Box ourselves and then converting it into a pointer.
     unsafe {
-        *output = Box::into_raw(Box::new(NeedleAudioAnalyzer(analyzer)));
+        *output = Box::into_raw(Box::new(NeedleAudioAnalyzer {
+            inner: analyzer,
+            frame_hashes: vec![],
+        }));
+    }
+
+    NeedleError::Ok
+}
+
+/// Returns the [FrameHashes] for the video at the given index.
+///
+/// Note that this index must match the index of the video provided to the [Analyzer].
+#[no_mangle]
+pub extern "C" fn needle_audio_analyzer_get_frame_hashes(
+    analyzer: *const NeedleAudioAnalyzer,
+    index: libc::size_t,
+    output: *mut *const FrameHashes,
+) -> NeedleError {
+    if analyzer.is_null() || output.is_null() {
+        return NeedleError::NullArgument;
+    }
+
+    let analyzer = unsafe { analyzer.as_ref().unwrap() };
+
+    if index >= analyzer.frame_hashes.len() {
+        return NeedleError::InvalidArgument;
+    }
+
+    unsafe {
+        *output = &analyzer.frame_hashes[index] as *const _;
     }
 
     NeedleError::Ok
@@ -386,7 +428,7 @@ pub extern "C" fn needle_audio_analyzer_print_paths(analyzer: *const NeedleAudio
     // SAFETY: We assume that the user is passing in a _valid_ pointer. Otherwise, all bets are off.
     let analyzer = unsafe { analyzer.as_ref().unwrap() };
 
-    for path in analyzer.0.videos() {
+    for path in analyzer.inner.videos() {
         println!("{}", path.display());
     }
 }
@@ -394,7 +436,7 @@ pub extern "C" fn needle_audio_analyzer_print_paths(analyzer: *const NeedleAudio
 /// Run the [NeedleAudioAnalyzer].
 #[no_mangle]
 pub extern "C" fn needle_audio_analyzer_run(
-    analyzer: *const NeedleAudioAnalyzer,
+    analyzer: *mut NeedleAudioAnalyzer,
     hash_period: f32,
     hash_duration: f32,
     persist: bool,
@@ -411,10 +453,17 @@ pub extern "C" fn needle_audio_analyzer_run(
     }
 
     // SAFETY: We assume that the user is passing in a _valid_ pointer. Otherwise, all bets are off.
-    let analyzer = unsafe { analyzer.as_ref().unwrap() };
+    let analyzer = unsafe { analyzer.as_mut().unwrap() };
 
-    match analyzer.0.run(hash_period, hash_duration, persist, threading) {
-        Ok(_) => NeedleError::Ok,
+    match analyzer
+        .inner
+        .run(hash_period, hash_duration, persist, threading)
+    {
+        Ok(frame_hashes) => {
+            // Store the frame hashes for later use.
+            analyzer.frame_hashes = frame_hashes.into_iter().map(|f| f.into()).collect();
+            NeedleError::Ok
+        }
         Err(e) => e.into(),
     }
 }
@@ -559,10 +608,13 @@ pub extern "C" fn needle_audio_comparator_run(
     // SAFETY: We assume that the user is passing in a _valid_ pointer. Otherwise, all bets are off.
     let comparator = unsafe { comparator.as_ref().unwrap() };
 
-    match comparator
-        .0
-        .run(analyze, display, use_skip_files, write_skip_files, threading)
-    {
+    match comparator.0.run(
+        analyze,
+        display,
+        use_skip_files,
+        write_skip_files,
+        threading,
+    ) {
         Ok(_) => NeedleError::Ok,
         Err(e) => e.into(),
     }
