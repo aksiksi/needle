@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.6](https://github.com/aksiksi/needle/compare/v0.1.5...v0.1.6) (2022-08-02)
+
+
+### Features
+
+* **analyzer:** Store hashes only and compute timestamp on demand ([3a1eeeb](https://github.com/aksiksi/needle/commit/3a1eeeb2974b7c549f9c5d95af1089db3625f5b4))
+* **analyzer:** Use MD5 instead of size for FrameHashes ([e6c393a](https://github.com/aksiksi/needle/commit/e6c393aa5302cf558f8ab59f99f143e7b55e20af))
+* **comparator:** Return a vector of SearchResult ([9d6bd55](https://github.com/aksiksi/needle/commit/9d6bd5567ebceea45fe779c18ba2fdf9b47325ee))
+* Do not sort videos internally ([22f8bb5](https://github.com/aksiksi/needle/commit/22f8bb57d0cf0c8b547432566821fcec19c4ca43))
+
 ## [0.1.5](https://github.com/aksiksi/needle/compare/v0.1.4...v0.1.5) (2022-07-31)
 
 
