@@ -437,19 +437,11 @@ pub extern "C" fn needle_audio_analyzer_print_paths(analyzer: *const NeedleAudio
 #[no_mangle]
 pub extern "C" fn needle_audio_analyzer_run(
     analyzer: *mut NeedleAudioAnalyzer,
-    hash_period: f32,
-    hash_duration: f32,
     persist: bool,
     threading: bool,
 ) -> NeedleError {
     if analyzer.is_null() {
         return NeedleError::NullArgument;
-    }
-    if hash_period <= 0.0 {
-        return NeedleError::AnalyzerInvalidHashPeriod;
-    }
-    if hash_duration < 3.0 {
-        return NeedleError::AnalyzerInvalidHashDuration;
     }
 
     // SAFETY: We assume that the user is passing in a _valid_ pointer. Otherwise, all bets are off.
@@ -457,7 +449,7 @@ pub extern "C" fn needle_audio_analyzer_run(
 
     match analyzer
         .inner
-        .run(hash_period, hash_duration, persist, threading)
+        .run(persist, threading)
     {
         Ok(frame_hashes) => {
             // Store the frame hashes for later use.

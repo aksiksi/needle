@@ -30,17 +30,6 @@ pub const DEFAULT_MIN_OPENING_DURATION: u16 = 20; // seconds
 /// A match will only be considered as an ending if it runs for at least this long.
 pub const DEFAULT_MIN_ENDING_DURATION: u16 = 20; // seconds
 
-/// Default hash period (seconds).
-///
-/// This is the time (in seconds) between successive frame hashes.
-pub const DEFAULT_HASH_PERIOD: f32 = 0.3;
-
-/// Default hash duration (seconds).
-///
-/// This is the duration of audio used to generate each frame hash. The minimum is 3 seconds -
-/// this is a constraint imposed by the underlying audio fingerprinting algorithm, Chromaprint.
-pub const DEFAULT_HASH_DURATION: f32 = 3.0;
-
 /// Default opening and ending time padding (seconds).
 ///
 /// This amount is added to the start time and subtracted from the end time of each opening and ending.

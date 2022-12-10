@@ -200,8 +200,6 @@ void needle_audio_analyzer_print_paths(const struct NeedleAudioAnalyzer *analyze
  * Run the [NeedleAudioAnalyzer].
  */
 enum NeedleError needle_audio_analyzer_run(struct NeedleAudioAnalyzer *analyzer,
-                                           float hash_period,
-                                           float hash_duration,
                                            bool persist,
                                            bool threading);
 

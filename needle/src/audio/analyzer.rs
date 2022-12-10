@@ -22,9 +22,9 @@ use crate::{Error, Result};
 /// or not to skip analyzing a file.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct FrameHashes {
-    pub(crate) hash_period: f32,
-    pub(crate) hash_duration: f32,
-    pub(crate) data: Vec<(u32, Duration)>,
+    pub(crate) data: Vec<u32>,
+    pub(crate) item_duration: f32,
+    pub(crate) delay: f32,
     pub(crate) md5: String,
 }
 
@@ -57,15 +57,23 @@ impl FrameHashes {
                 video.display()
             );
             let analyzer = super::Analyzer::<&Path>::default().with_force(true);
-            let frame_hashes = analyzer.run_single(
-                video,
-                super::DEFAULT_HASH_PERIOD,
-                super::DEFAULT_HASH_DURATION,
-                false,
-            )?;
+            let frame_hashes = analyzer.run_single(video, false)?;
             tracing::debug!("completed in-place video analysis for {}", video.display());
             Ok(frame_hashes)
         }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    pub(crate) fn data(&self) -> &[u32] {
+        &self.data
+    }
+
+    pub(crate) fn timestamp(&self, index: usize) -> Duration {
+        let d = Duration::from_secs_f32(self.delay + self.item_duration * index as f32);
+        d
     }
 }
 
@@ -116,8 +124,8 @@ impl Decoder {
 ///
 /// 1. Extracts the most suitable audio stream
 /// 2. Decodes the audio frame-by-frame and resamples it for fingerprinting
-/// 3. Builds a fingerprint (or hash) based on the provided `hash_duration`
-/// 4. Returns a [FrameHashes] instance that contains the raw data and (optionally) writes it to disk
+/// 3. Builds a fingerprint (32-bit int array) by feeding samples to Chromaprint
+/// 4. Returns a [FrameHashes] instance that contains the raw fingerprint and (optionally) writes it to disk
 ///    alongside the video
 ///
 /// # Example
@@ -169,6 +177,12 @@ impl<P: AsRef<Path>> Analyzer<P> {
         &self.videos
     }
 
+    /// Returns a new [Analyzer] with the provided video paths.
+    pub fn with_videos(mut self, videos: impl Into<Vec<P>>) -> Self {
+        self.videos = videos.into();
+        self
+    }
+
     /// Returns a new [Analyzer] with `force` set to the provided value.
     pub fn with_force(mut self, force: bool) -> Self {
         self.force = force;
@@ -196,10 +210,8 @@ impl<P: AsRef<Path>> Analyzer<P> {
     fn process_frames(
         ctx: &mut ffmpeg_next::format::context::Input,
         stream_idx: usize,
-        hash_duration: Duration,
-        hash_period: Duration,
         threaded: bool,
-    ) -> Result<Vec<(u32, Duration)>> {
+    ) -> Result<(Vec<u32>, Duration, Duration)> {
         let span = tracing::span!(tracing::Level::TRACE, "process_frames");
         let _enter = span.enter();
 
@@ -211,9 +223,8 @@ impl<P: AsRef<Path>> Analyzer<P> {
         let mut frame_resampled = ffmpeg_next::frame::Audio::empty();
 
         // Setup the audio fingerprinter
-        let n = f32::ceil(hash_duration.as_secs_f32() / hash_period.as_secs_f32()) as usize;
-        let mut fingerprinter =
-            chromaprint::DelayedFingerprinter::new(n, hash_duration, hash_period, None, 2, None);
+        let mut fingerprinter = chromaprint::Context::default();
+        fingerprinter.start(fingerprinter.sample_rate(), 2).unwrap();
 
         // Setup the audio resampler
         let target_sample_rate = fingerprinter.sample_rate();
@@ -280,10 +291,7 @@ impl<P: AsRef<Path>> Analyzer<P> {
 
                     // Feed the i16 samples to Chromaprint. Since we are using the default sampling rate,
                     // Chromaprint will _not_ do any resampling internally.
-                    for (raw_fingerprint, ts) in fingerprinter.feed(samples).unwrap() {
-                        let hash = chromaprint::simhash::simhash32(raw_fingerprint.get());
-                        hashes.push((hash, ts));
-                    }
+                    fingerprinter.feed(samples).unwrap();
 
                     if delay.is_none() {
                         break;
@@ -294,16 +302,22 @@ impl<P: AsRef<Path>> Analyzer<P> {
             }
         }
 
-        Ok(hashes)
+        fingerprinter.finish().unwrap();
+
+        let fingerprint_delay = fingerprinter.get_delay().unwrap();
+        let fingerprint_item_duration = fingerprinter.get_item_duration().unwrap();
+
+        fingerprinter
+            .get_fingerprint_raw()
+            .unwrap()
+            .get()
+            .iter()
+            .for_each(|f| hashes.push(*f));
+
+        Ok((hashes, fingerprint_item_duration, fingerprint_delay))
     }
 
-    pub(crate) fn run_single(
-        &self,
-        path: impl AsRef<Path>,
-        hash_period: f32,
-        hash_duration: f32,
-        persist: bool,
-    ) -> Result<FrameHashes> {
+    pub(crate) fn run_single(&self, path: impl AsRef<Path>, persist: bool) -> Result<FrameHashes> {
         let span = tracing::span!(tracing::Level::TRACE, "run");
         let _enter = span.enter();
 
@@ -328,23 +342,13 @@ impl<P: AsRef<Path>> Analyzer<P> {
         let threaded = self.threaded_decoding;
 
         tracing::debug!("starting frame processing for {}", path.display());
-        let frame_hashes = Self::process_frames(
-            &mut ctx,
-            stream_idx,
-            Duration::from_secs_f32(hash_duration),
-            Duration::from_secs_f32(hash_period),
-            threaded,
-        )?;
-        tracing::debug!(
-            num_hashes = frame_hashes.len(),
-            "completed frame processing for {}",
-            path.display(),
-        );
+        let (frame_hashes, item_duration, delay) =
+            Self::process_frames(&mut ctx, stream_idx, threaded)?;
 
         let frame_hashes = FrameHashes {
-            hash_period,
-            hash_duration,
             data: frame_hashes,
+            item_duration: item_duration.as_secs_f32(),
+            delay: delay.as_secs_f32(),
             md5,
         };
 
@@ -360,13 +364,7 @@ impl<P: AsRef<Path>> Analyzer<P> {
 
 impl<P: AsRef<Path> + Sync> Analyzer<P> {
     /// Runs this analyzer.
-    pub fn run(
-        &self,
-        hash_period: f32,
-        hash_duration: f32,
-        persist: bool,
-        threading: bool,
-    ) -> Result<Vec<FrameHashes>> {
+    pub fn run(&self, persist: bool, threading: bool) -> Result<Vec<FrameHashes>> {
         if self.videos.len() == 0 {
             return Err(Error::AnalyzerMissingPaths.into());
         }
@@ -379,17 +377,15 @@ impl<P: AsRef<Path> + Sync> Analyzer<P> {
                 data = self
                     .videos
                     .par_iter()
-                    .map(|path| {
-                        self.run_single(path, hash_period, hash_duration, persist)
-                            .unwrap()
-                    })
+                    .map(|path| self.run_single(path, persist).unwrap())
                     .collect::<Vec<_>>();
             }
         } else {
-            data.extend(self.videos.iter().map(|path| {
-                self.run_single(path, hash_period, hash_duration, persist)
-                    .unwrap()
-            }));
+            data.extend(
+                self.videos
+                    .iter()
+                    .map(|path| self.run_single(path, persist).unwrap()),
+            );
         }
 
         Ok(data)
@@ -414,7 +410,7 @@ mod test {
     fn test_analyzer() {
         let paths = get_sample_paths();
         let analyzer = Analyzer::from_files(paths.clone(), false, false);
-        let data = analyzer.run(0.3, 3.0, false, false).unwrap();
+        let data = analyzer.run(false, false).unwrap();
         insta::assert_debug_snapshot!(data);
     }
 }

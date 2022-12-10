@@ -37,22 +37,6 @@ enum Commands {
 
         #[clap(
             long,
-            default_value_t = audio::DEFAULT_HASH_PERIOD,
-            value_parser = clap::value_parser!(f32),
-            help = "Period between hashes, in seconds. For example, if set to 0.3, a hash will be generated for every 300 ms of audio. Lowering this number can improve the accuracy of the result, at the cost of performance. The default aims to strike a balance between accuracy and performance."
-        )]
-        hash_period: f32,
-
-        #[clap(
-            long,
-            default_value_t = audio::DEFAULT_HASH_DURATION,
-            value_parser = clap::value_parser!(f32),
-            help = "Duration of audio to hash, in seconds.",
-        )]
-        hash_duration: f32,
-
-        #[clap(
-            long,
             default_value = "false",
             action(ArgAction::SetTrue),
             help = "Enable multi-threaded decoding in FFmpeg."
@@ -141,7 +125,7 @@ enum Commands {
             long,
             default_value = "false",
             action(ArgAction::SetTrue),
-            help = "Check skip files on disk during the search. These are JSON files that store the result of the search alongside each video file. When this flag is set, if a skip file exists for a video, it will be skipped during the pairwise search. Do not specify this flag if you want incremental search to work."
+            help = "Check skip files on disk during the search. These are JSON files that store the result of the search alongside each video file. When this flag is set, if a skip file exists for a video, it will be skipped during the pairwise search."
         )]
         use_skip_files: bool,
 
@@ -200,27 +184,7 @@ impl Cli {
     fn validate(&self) {
         let mut cmd = Cli::command();
         match self.command {
-            Commands::Info => (),
-            Commands::Analyze {
-                hash_period,
-                hash_duration,
-                ..
-            } => {
-                if hash_period <= 0.0 {
-                    cmd.error(
-                        ErrorKind::InvalidValue,
-                        "hash_period must be a positive number",
-                    )
-                    .exit();
-                }
-                if hash_duration < 3.0 {
-                    cmd.error(
-                        ErrorKind::InvalidValue,
-                        "hash_duration must be greater than 3 seconds",
-                    )
-                    .exit();
-                }
-            }
+            Commands::Info | Commands::Analyze { .. } => (),
             Commands::Search {
                 opening_search_percentage,
                 ending_search_percentage,
@@ -282,8 +246,6 @@ fn main() -> needle::Result<()> {
     match args.command {
         Commands::Analyze {
             ref mode,
-            hash_period,
-            hash_duration,
             threaded_decoding,
             force,
             ref paths,
@@ -292,7 +254,7 @@ fn main() -> needle::Result<()> {
                 let mut videos = args.find_video_files(paths);
                 videos.sort();
                 let analyzer = audio::Analyzer::from_files(videos, threaded_decoding, force);
-                analyzer.run(hash_period, hash_duration, true, !args.no_threading)?;
+                analyzer.run(true, !args.no_threading)?;
             }
             #[cfg(feature = "video")]
             Mode::Video => {

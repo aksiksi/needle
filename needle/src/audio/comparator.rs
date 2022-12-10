@@ -36,8 +36,6 @@ struct ComparatorHeapEntry {
     is_src_ending: bool,
     is_dst_opening: bool,
     is_dst_ending: bool,
-    src_hash_duration: Duration,
-    dst_hash_duration: Duration,
 }
 
 impl Display for ComparatorHeapEntry {
@@ -169,23 +167,20 @@ impl<P: AsRef<Path>> Comparator<P> {
     }
 
     #[inline]
-    fn compute_hash_for_match(hashes: &[(u32, Duration)], (start, end): (usize, usize)) -> u32 {
-        let hashes: Vec<u32> = hashes.iter().map(|t| t.0).collect();
-        chromaprint::simhash::simhash32(&hashes[start..end + 1])
+    fn compute_hash_for_match(hashes: &FrameHashes, (start, end): (usize, usize)) -> u32 {
+        chromaprint::simhash::simhash32(&hashes.data()[start..end + 1])
     }
 
     /// Runs a LCS (longest common substring) search between the two sets of hashes. This runs in
     /// O(n * m) time.
     fn longest_common_hash_match(
         &self,
-        src: &[(u32, Duration)],
-        dst: &[(u32, Duration)],
+        src: &FrameHashes,
+        dst: &FrameHashes,
         src_max_opening_time: Duration,
         src_min_ending_time: Duration,
         dst_max_opening_time: Duration,
         dst_min_ending_time: Duration,
-        src_hash_duration: Duration,
-        dst_hash_duration: Duration,
     ) -> Vec<ComparatorHeapEntry> {
         // Heap to keep track of best hash matches in order of length.
         let mut heap: ComparatorHeap = BinaryHeap::new();
@@ -194,7 +189,7 @@ impl<P: AsRef<Path>> Comparator<P> {
         let mut table: Vec<Vec<usize>> = vec![vec![0; dst.len() + 1]; src.len() + 1];
         for i in 0..src.len() {
             for j in 0..dst.len() {
-                let (src_hash, dst_hash) = (src[i].0, dst[j].0);
+                let (src_hash, dst_hash) = (src.data()[i], dst.data()[j]);
                 if i == 0 || j == 0 {
                     table[i][j] = 0;
                 } else if u32::count_ones(src_hash ^ dst_hash) <= self.hash_match_threshold {
@@ -207,17 +202,14 @@ impl<P: AsRef<Path>> Comparator<P> {
 
         // Walk through the table and find all valid substrings and insert them into
         // the heap.
-        let mut i = src.len() - 1;
-        while i > 0 {
-            let mut j = dst.len() - 1;
-            while j > 0 {
+        for i in (1..src.len()).rev() {
+            for j in (1..dst.len()).rev() {
                 // We need to find an entry where the current entry is non-zero
                 // and the next entry is zero. This indicates that we are at the end
                 // of a substring.
                 if table[i][j] == 0
                     || (i < src.len() - 1 && j < dst.len() - 1 && table[i + 1][j + 1] != 0)
                 {
-                    j -= 1;
                     continue;
                 }
 
@@ -227,8 +219,10 @@ impl<P: AsRef<Path>> Comparator<P> {
                 // If the sequence _starts_ after the maximum ending time, it is an ending.
                 let (src_start_idx, src_end_idx) = (i - table[i][j], i);
                 let (dst_start_idx, dst_end_idx) = (j - table[i][j], j);
-                let (src_start, src_end) = (src[src_start_idx].1, src[src_end_idx].1);
-                let (dst_start, dst_end) = (dst[dst_start_idx].1, dst[dst_end_idx].1);
+                let (src_start, src_end) =
+                    (src.timestamp(src_start_idx), src.timestamp(src_end_idx));
+                let (dst_start, dst_end) =
+                    (dst.timestamp(dst_start_idx), dst.timestamp(dst_end_idx));
                 let (is_src_opening, is_src_ending) = (
                     src_end < src_max_opening_time,
                     src_start > src_min_ending_time,
@@ -249,7 +243,6 @@ impl<P: AsRef<Path>> Comparator<P> {
 
                 // Skip invalid sequences.
                 if !is_valid {
-                    j -= 1;
                     continue;
                 }
 
@@ -258,7 +251,6 @@ impl<P: AsRef<Path>> Comparator<P> {
                     && (src_end - src_start) >= self.min_ending_duration)
                     || (is_dst_ending && (dst_end - dst_start) >= self.min_ending_duration);
                 if is_ending && self.openings_only {
-                    j -= 1;
                     continue;
                 }
 
@@ -278,16 +270,10 @@ impl<P: AsRef<Path>> Comparator<P> {
                     is_src_ending,
                     is_dst_opening,
                     is_dst_ending,
-                    src_hash_duration,
-                    dst_hash_duration,
                 };
 
                 heap.push(entry);
-
-                j -= 1;
             }
-
-            i -= 1;
         }
 
         heap.into()
@@ -295,39 +281,32 @@ impl<P: AsRef<Path>> Comparator<P> {
 
     fn find_opening_and_ending(
         &self,
-        src_hashes: &super::analyzer::FrameHashes,
-        dst_hashes: &super::analyzer::FrameHashes,
+        src_hashes: &FrameHashes,
+        dst_hashes: &FrameHashes,
     ) -> OpeningAndEndingInfo {
         let _g = tracing::span!(tracing::Level::TRACE, "find_opening_and_ending");
 
-        let src_hash_data = &src_hashes.data;
-        let dst_hash_data = &dst_hashes.data;
-        let src_hash_duration = Duration::from_secs_f32(src_hashes.hash_duration);
-        let dst_hash_duration = Duration::from_secs_f32(dst_hashes.hash_duration);
-
         // Figure out the duration limits for opening and endings.
         let src_opening_search_idx =
-            ((src_hash_data.len() - 1) as f32 * self.opening_search_percentage) as usize;
+            ((src_hashes.len() - 1) as f32 * self.opening_search_percentage) as usize;
         let src_ending_search_idx =
-            ((src_hash_data.len() - 1) as f32 * (1.0 - self.ending_search_percentage)) as usize;
+            ((src_hashes.len() - 1) as f32 * (1.0 - self.ending_search_percentage)) as usize;
         let dst_opening_search_idx =
-            ((dst_hash_data.len() - 1) as f32 * self.opening_search_percentage) as usize;
+            ((dst_hashes.len() - 1) as f32 * self.opening_search_percentage) as usize;
         let dst_ending_search_idx =
-            ((dst_hash_data.len() - 1) as f32 * (1.0 - self.ending_search_percentage)) as usize;
-        let src_max_opening_time = src_hash_data[src_opening_search_idx].1;
-        let src_min_ending_time = src_hash_data[src_ending_search_idx].1;
-        let dst_max_opening_time = dst_hash_data[dst_opening_search_idx].1;
-        let dst_min_ending_time = dst_hash_data[dst_ending_search_idx].1;
+            ((dst_hashes.len() - 1) as f32 * (1.0 - self.ending_search_percentage)) as usize;
+        let src_max_opening_time = src_hashes.timestamp(src_opening_search_idx);
+        let src_min_ending_time = src_hashes.timestamp(src_ending_search_idx);
+        let dst_max_opening_time = dst_hashes.timestamp(dst_opening_search_idx);
+        let dst_min_ending_time = dst_hashes.timestamp(dst_ending_search_idx);
 
         let entries = self.longest_common_hash_match(
-            src_hash_data,
-            dst_hash_data,
+            src_hashes,
+            dst_hashes,
             src_max_opening_time,
             src_min_ending_time,
             dst_max_opening_time,
             dst_min_ending_time,
-            src_hash_duration,
-            dst_hash_duration,
         );
 
         tracing::debug!(
@@ -467,20 +446,20 @@ impl<P: AsRef<Path>> Comparator<P> {
         for (m, is_source) in matches {
             if *is_source {
                 for e in &m.src_openings {
-                    let o = (e.src_longest_run, e.src_hash_duration, e.src_match_hash);
+                    let o = (e.src_longest_run, e.src_match_hash);
                     candidates.push((o, true));
                 }
                 for e in &m.src_endings {
-                    let o = (e.src_longest_run, e.src_hash_duration, e.src_match_hash);
+                    let o = (e.src_longest_run, e.src_match_hash);
                     candidates.push((o, false));
                 }
             } else {
                 for e in &m.dst_openings {
-                    let o = (e.dst_longest_run, e.dst_hash_duration, e.dst_match_hash);
+                    let o = (e.dst_longest_run, e.dst_match_hash);
                     candidates.push((o, true));
                 }
                 for e in &m.dst_endings {
-                    let o = (e.dst_longest_run, e.dst_hash_duration, e.dst_match_hash);
+                    let o = (e.dst_longest_run, e.dst_match_hash);
                     candidates.push((o, false));
                 }
             }
@@ -490,7 +469,7 @@ impl<P: AsRef<Path>> Comparator<P> {
 
         for (i, (c, _)) in candidates.iter().enumerate() {
             for (j, (other, _)) in candidates.iter().enumerate() {
-                let dist = u32::count_ones(c.2 ^ other.2);
+                let dist = u32::count_ones(c.1 ^ other.1);
 
                 // Add a small bias to the hash match threshold when comparing sequence hashes.
                 if dist >= self.hash_match_threshold + (self.hash_match_threshold / 2) {
@@ -517,7 +496,7 @@ impl<P: AsRef<Path>> Comparator<P> {
                 is_opening
             })
             .map(|(k, v)| {
-                let (((start, end), _, _), _) = candidates[*k];
+                let (((start, end), _), _) = candidates[*k];
                 let count = v.len() as i64;
                 let duration_secs = (end - start).as_secs_f32();
                 // Weighted sum of count and duration, with more weight given to duration.
@@ -528,12 +507,12 @@ impl<P: AsRef<Path>> Comparator<P> {
         best_openings.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         if let Some((_, idx)) = best_openings.first() {
-            let (((start, end), hash_duration, _), _) = candidates[*idx];
+            let (((start, end), _), _) = candidates[*idx];
             best.opening = Some((
                 // Add a buffer between actual detected times and what we return to users.
                 start + self.time_padding,
                 // Adjust ending time using the configured hash duration.
-                end - self.time_padding - hash_duration,
+                end - self.time_padding,
             ));
         }
 
@@ -546,7 +525,7 @@ impl<P: AsRef<Path>> Comparator<P> {
                     !is_opening
                 })
                 .map(|(k, v)| {
-                    let (((start, end), _, _), _) = candidates[*k];
+                    let (((start, end), _), _) = candidates[*k];
                     let count = v.len() as i64;
                     let duration_secs = (end - start).as_secs_f32();
                     // Weighted sum of count and duration, with more weight given to duration.
@@ -556,12 +535,12 @@ impl<P: AsRef<Path>> Comparator<P> {
             best_endings.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
             if let Some((_, idx)) = best_endings.first() {
-                let (((start, end), hash_duration, _), _) = candidates[*idx];
+                let (((start, end), _), _) = candidates[*idx];
                 best.ending = Some((
                     // Add a buffer between actual detected times and what we return to users.
                     start + self.time_padding,
                     // Adjust ending time using the configured hash duration.
-                    end - self.time_padding - hash_duration,
+                    end - self.time_padding,
                 ));
             }
         }
@@ -737,10 +716,14 @@ mod test {
         // TODO(aksiksi): Make this test actually do something. Right now, it doesn't really detect anything
         // because the clips are too short.
         let paths = get_sample_paths();
-        let comparator = Comparator::from_files(paths)
+        let analyzer = Analyzer::from_files(paths, false, false);
+        let frame_hashes = analyzer.run(false, false).unwrap();
+        let comparator = Comparator::from(analyzer)
             .with_min_opening_duration(Duration::from_millis(300))
             .with_min_ending_duration(Duration::from_millis(300));
-        let data = comparator.run(true, true, false, false, false).unwrap();
+        let data = comparator
+            .run_with_frame_hashes(frame_hashes, true, false, false, false)
+            .unwrap();
         assert_eq!(data.len(), 2);
     }
 }
