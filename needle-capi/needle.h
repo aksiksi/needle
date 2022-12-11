@@ -166,7 +166,7 @@ void needle_util_video_files_free(const char *const *videos, size_t num_videos);
  */
 enum NeedleError needle_audio_analyzer_new_default(const char *const *paths,
                                                    size_t num_paths,
-                                                   const struct NeedleAudioAnalyzer **output);
+                                                   struct NeedleAudioAnalyzer **output);
 
 /**
  * Constructs a new [NeedleAudioAnalyzer].
@@ -175,7 +175,7 @@ enum NeedleError needle_audio_analyzer_new(const char *const *paths,
                                            size_t num_paths,
                                            bool threaded_decoding,
                                            bool force,
-                                           const struct NeedleAudioAnalyzer **output);
+                                           struct NeedleAudioAnalyzer **output);
 
 /**
  * Returns the [FrameHashes] for the video at the given index.

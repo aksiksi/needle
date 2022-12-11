@@ -3,7 +3,7 @@
 
 int main() {
     NeedleError err;
-    const NeedleAudioAnalyzer *analyzer = NULL;
+    NeedleAudioAnalyzer *analyzer = NULL;
     const NeedleAudioComparator *comparator = NULL;
     const char *const *video_paths = NULL;
     size_t num_video_paths = 0;

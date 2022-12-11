@@ -3,7 +3,7 @@
 
 int main() {
     NeedleError err;
-    const NeedleAudioAnalyzer *analyzer = NULL;
+    NeedleAudioAnalyzer *analyzer = NULL;
 
     const char *video_paths[] = {
         "../../needle/resources/sample-5s.mp4",

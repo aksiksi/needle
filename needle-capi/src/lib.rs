@@ -342,7 +342,7 @@ pub struct NeedleAudioAnalyzer {
 pub extern "C" fn needle_audio_analyzer_new_default(
     paths: *const *const libc::c_char,
     num_paths: libc::size_t,
-    output: *mut *const NeedleAudioAnalyzer,
+    output: *mut *mut NeedleAudioAnalyzer,
 ) -> NeedleError {
     needle_audio_analyzer_new(paths, num_paths, false, false, output)
 }
@@ -354,7 +354,7 @@ pub extern "C" fn needle_audio_analyzer_new(
     num_paths: libc::size_t,
     threaded_decoding: bool,
     force: bool,
-    output: *mut *const NeedleAudioAnalyzer,
+    output: *mut *mut NeedleAudioAnalyzer,
 ) -> NeedleError {
     if paths.is_null() || output.is_null() {
         return NeedleError::NullArgument;
@@ -667,11 +667,11 @@ mod test {
         let paths = ["/tmp/abcd.mkv".to_string()].map(|s| std::ffi::CString::new(s).unwrap());
         let path_ptrs: Vec<*const libc::c_char> = paths.iter().map(|s| s.as_ptr()).collect();
         let num_paths = paths.len();
-        let mut analyzer = std::ptr::null();
+        let mut analyzer = std::ptr::null_mut();
         let error =
             needle_audio_analyzer_new(path_ptrs.as_ptr(), num_paths, false, false, &mut analyzer);
         assert_eq!(error, NeedleError::Ok);
-        assert_ne!(analyzer, std::ptr::null());
+        assert_ne!(analyzer, std::ptr::null_mut());
         needle_audio_analyzer_free(analyzer);
     }
 
@@ -680,10 +680,10 @@ mod test {
         let paths = ["/tmp/abcd.mkv".to_string()].map(|s| std::ffi::CString::new(s).unwrap());
         let path_ptrs: Vec<*const libc::c_char> = paths.iter().map(|s| s.as_ptr()).collect();
         let num_paths = paths.len();
-        let mut analyzer = std::ptr::null();
+        let mut analyzer = std::ptr::null_mut();
         let error = needle_audio_analyzer_new_default(path_ptrs.as_ptr(), num_paths, &mut analyzer);
         assert_eq!(error, NeedleError::Ok);
-        assert_ne!(analyzer, std::ptr::null());
+        assert_ne!(analyzer, std::ptr::null_mut());
         needle_audio_analyzer_free(analyzer);
     }
 
