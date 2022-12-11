@@ -85,11 +85,31 @@ pub fn find_video_files<P: AsRef<Path>>(
     Ok(valid_video_files)
 }
 
+/// Computes the MD5 checksum of the file header (first 8K bytes).
 pub(crate) fn compute_header_md5sum(video: impl AsRef<Path>) -> crate::Result<String> {
-    let mut buf = [0u8; 8192];
+    let mut buf = [0u8; 8*1024];
     let mut f = std::fs::File::open(video.as_ref())?;
     f.read_exact(&mut buf)?;
     let hash = format!("{:x}", md5::compute(&buf));
+    Ok(hash)
+}
+
+/// Computes the MD5 checksum of the entire video file.
+///
+/// This function allocates a 10M buffer on the heap and reads the file in chunks.
+#[allow(unused)]
+pub(crate) fn compute_md5sum(video: impl AsRef<Path>) -> crate::Result<String> {
+    let mut buf = Box::new([0u8; 10*1024*1024]);
+    let mut f = std::fs::File::open(video.as_ref())?;
+    let mut ctx = md5::Context::new();
+    loop {
+        let n = f.read(buf.as_mut_slice())?;
+        if n == 0 {
+            break
+        }
+        ctx.consume(&buf[..n]);
+    }
+    let hash = format!("{:x}", ctx.compute());
     Ok(hash)
 }
 
