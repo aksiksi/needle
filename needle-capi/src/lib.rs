@@ -68,6 +68,8 @@ pub enum NeedleError {
     InvalidArgument,
     /// Frame hash data was not found on disk.
     FrameHashDataNotFound,
+    /// Frame hash data on disk has an invalid version.
+    FrameHashDataInvalidVersion,
     /// Frame hash data on disk is not valid.
     InvalidFrameHashData,
     /// Comparator needs at least two video paths.
@@ -92,6 +94,7 @@ impl Display for NeedleError {
                 write!(f, "One or more input arguments were invalid (usually zero)")
             }
             NeedleError::FrameHashDataNotFound => write!(f, "Frame hash data not found on disk"),
+            NeedleError::FrameHashDataInvalidVersion => write!(f, "Frame hash data has an invalid version"),
             NeedleError::InvalidFrameHashData => {
                 write!(f, "Invalid frame hash data read from disk")
             }
@@ -119,8 +122,9 @@ impl From<needle::Error> for NeedleError {
         eprintln!("needle error: {}", err);
         match err {
             needle::Error::FrameHashDataNotFound(_) => FrameHashDataNotFound,
-            needle::Error::AnalyzerMissingPaths => Unknown,
+            needle::Error::FrameHashDataInvalidVersion => FrameHashDataInvalidVersion,
             needle::Error::BincodeError(_) => InvalidFrameHashData,
+            needle::Error::AnalyzerMissingPaths => Unknown,
             needle::Error::IOError(_) => IOError,
             _ => Unknown,
         }
@@ -148,6 +152,10 @@ pub extern "C" fn needle_error_to_str(error: NeedleError) -> *const libc::c_char
         },
         NeedleError::FrameHashDataNotFound => unsafe {
             CStr::from_bytes_with_nul_unchecked("Frame hash data not found on disk\0".as_bytes())
+                .as_ptr()
+        },
+        NeedleError::FrameHashDataInvalidVersion => unsafe {
+            CStr::from_bytes_with_nul_unchecked("Frame hash data has an invalid version.\0".as_bytes())
                 .as_ptr()
         },
         NeedleError::InvalidFrameHashData => unsafe {

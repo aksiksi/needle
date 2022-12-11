@@ -5,21 +5,76 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Error, Result};
 
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+pub enum FrameHashesVersion {
+    V1 = 12345,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct FrameHashesV1 {
+    data: Vec<(u32, Duration)>,
+    hash_duration: f32,
+    md5: String,
+}
+
+impl FrameHashesV1 {
+    fn new(data: Vec<(u32, Duration)>, hash_duration: f32, md5: String) -> Self {
+        Self {
+            data,
+            hash_duration,
+            md5,
+        }
+    }
+
+    fn data(&self) -> &[(u32, Duration)] {
+        return &self.data;
+    }
+
+    fn hash_duration(&self) -> f32 {
+        return self.hash_duration;
+    }
+
+    fn md5(&self) -> &str {
+        return &self.md5;
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+enum FrameHashesData {
+    // IMPORTANT: Removing or modifying any of these variants is a breaking change.
+    V1(FrameHashesV1),
+}
+
 /// Represents frame hash data for a single video file. This is the result of running
 /// an [Analyzer] on a video file.
 ///
-/// The struct contains the raw data as well as metadata about how the data was generated. The
-/// original video size is included to allow for primitive duplicate checks when deciding whether
-/// or not to skip analyzing a file.
+/// The struct contains the raw data as well as metadata about how the data was generated.
+/// The struct is versioned to allow for upgrades in the future without breaking previous
+/// versions.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct FrameHashes {
-    pub(crate) hash_period: f32,
-    pub(crate) hash_duration: f32,
-    pub(crate) data: Vec<(u32, Duration)>,
-    pub(crate) md5: String,
+    /// Magic number for the version.
+    pub version: FrameHashesVersion,
+    /// Data for the given version.
+    data: FrameHashesData,
 }
 
 impl FrameHashes {
+    pub(crate) fn new_v1(data: Vec<(u32, Duration)>, hash_duration: f32, md5: String) -> Self {
+        Self {
+            version: FrameHashesVersion::V1,
+            data: FrameHashesData::V1(FrameHashesV1::new(data, hash_duration, md5)),
+        }
+    }
+
+    /// Ensures that the version magic number matches the version of the data.
+    fn is_version_valid(&self) -> bool {
+        match self.data {
+            FrameHashesData::V1(_) if self.version == FrameHashesVersion::V1 => true,
+            _ => false,
+        }
+    }
+
     /// Load frame hashes from a path.
     fn from_path(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
@@ -27,7 +82,11 @@ impl FrameHashes {
             return Err(Error::FrameHashDataNotFound(path.to_owned()).into());
         }
         let f = std::fs::File::open(path)?;
-        Ok(bincode::deserialize_from(&f)?)
+        let frame_hashes: Self = bincode::deserialize_from(&f)?;
+        if !frame_hashes.is_version_valid() {
+            return Err(Error::FrameHashDataInvalidVersion);
+        }
+        Ok(frame_hashes)
     }
 
     /// Load frame hash data using a video path.
@@ -56,6 +115,27 @@ impl FrameHashes {
             )?;
             tracing::debug!("completed in-place video analysis for {}", video.display());
             Ok(frame_hashes)
+        }
+    }
+
+    /// Returns the data from the underlying frame hashes.
+    pub fn data(&self) -> &[(u32, Duration)] {
+        match &self.data {
+            FrameHashesData::V1(f) => f.data(),
+        }
+    }
+
+    /// Returns the hash duration from the underlying frame hashes.
+    pub fn hash_duration(&self) -> f32 {
+        match &self.data {
+            FrameHashesData::V1(f) => f.hash_duration(),
+        }
+    }
+
+    /// Returns the MD5 hash from the underlying frame hashes.
+    pub fn md5(&self) -> &str {
+        match &self.data {
+            FrameHashesData::V1(f) => f.md5(),
         }
     }
 }

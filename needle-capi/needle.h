@@ -31,6 +31,10 @@ typedef enum NeedleError {
    */
   NeedleError_FrameHashDataNotFound,
   /**
+   * Frame hash data on disk has an invalid version.
+   */
+  NeedleError_FrameHashDataInvalidVersion,
+  /**
    * Frame hash data on disk is not valid.
    */
   NeedleError_InvalidFrameHashData,

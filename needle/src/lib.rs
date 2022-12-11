@@ -122,6 +122,9 @@ pub enum Error {
     /// Frame hash data was not found on disk.
     #[error("frame hash data not found at: {0:?}")]
     FrameHashDataNotFound(PathBuf),
+    /// Invalid frame hash data version.
+    #[error("invalid frame hash data version")]
+    FrameHashDataInvalidVersion,
     /// No paths were provided to the [crate::audio::Analyzer].
     #[error("no paths provided to analyzer")]
     AnalyzerMissingPaths,

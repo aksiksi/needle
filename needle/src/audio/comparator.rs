@@ -300,10 +300,10 @@ impl<P: AsRef<Path>> Comparator<P> {
     ) -> OpeningAndEndingInfo {
         let _g = tracing::span!(tracing::Level::TRACE, "find_opening_and_ending");
 
-        let src_hash_data = &src_hashes.data;
-        let dst_hash_data = &dst_hashes.data;
-        let src_hash_duration = Duration::from_secs_f32(src_hashes.hash_duration);
-        let dst_hash_duration = Duration::from_secs_f32(dst_hashes.hash_duration);
+        let src_hash_data = src_hashes.data();
+        let dst_hash_data = dst_hashes.data();
+        let src_hash_duration = Duration::from_secs_f32(src_hashes.hash_duration());
+        let dst_hash_duration = Duration::from_secs_f32(dst_hashes.hash_duration());
 
         // Figure out the duration limits for opening and endings.
         let src_opening_search_idx =

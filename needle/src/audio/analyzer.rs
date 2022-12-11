@@ -260,7 +260,7 @@ impl<P: AsRef<Path>> Analyzer<P> {
         if !self.force {
             if let Ok(f) = std::fs::File::open(&frame_hash_path) {
                 let data: FrameHashes = bincode::deserialize_from(&f).unwrap();
-                if data.md5 == md5 {
+                if data.md5() == md5 {
                     println!("Skipping analysis for {}...", path.display());
                     return Ok(data);
                 }
@@ -286,12 +286,7 @@ impl<P: AsRef<Path>> Analyzer<P> {
             path.display(),
         );
 
-        let frame_hashes = FrameHashes {
-            hash_period,
-            hash_duration,
-            data: frame_hashes,
-            md5,
-        };
+        let frame_hashes = FrameHashes::new_v1(frame_hashes, hash_duration, md5);
 
         // Write results to disk.
         if persist {
