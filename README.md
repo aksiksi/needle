@@ -13,8 +13,13 @@ A tool that finds a needle (opening/intro and ending/credits) in a haystack (TV 
 
 ## Quickstart
 
-1. [Install dependencies](#dependencies) for your platform (if any)
-2. Download the latest `needle` binary for your platform from the [releases page](https://github.com/aksiksi/needle/releases)
+Download and run the `needle` Docker container:
+
+```
+docker run ghcr.io/aksiksi/needle:latest --help
+```
+
+**Note:** If you just want to install the binary, skip over to the [install](#install) section before proceeding.
 
 Run a search for opening and endings in the first three episodes of [Land of the Lustrous](https://en.wikipedia.org/wiki/Land_of_the_Lustrous_(TV_series)):
 
@@ -108,12 +113,30 @@ TODO
 
 ## Install
 
-There are currently two ways to install `needle`:
+There are currently three ways to install `needle`:
 
-1. Grab the latest binary from the [releases page](https://github.com/aksiksi/needle/releases)
-    * **Prerequisites:** Install [runtime dependencies](#dependencies) for your platform
-2. `cargo install needle-rs`
-    * **Prerequisites:** Install [build dependencies](#build) for your platform
+1. Run `needle` in a Docker container (`amd64` only!):
+
+```
+docker run ghcr.io/aksiksi/needle:latest --help
+```
+
+2. Grab the latest binary from the [releases page](https://github.com/aksiksi/needle/releases)
+    * **Prerequisites:** Install the [runtime dependencies](#runtime-dependencies) for your platform
+
+3. Build and install the latest release:
+    * **Prerequisites:** Install the [build dependencies](#build) for your platform
+
+```
+cargo install needle-rs
+```
+
+4. Build latest version (HEAD) from source:
+    * **Prerequisites:** Install the [build dependencies](#build) for your platform
+
+```
+cargo build --release --manifest-path needle/
+```
 
 ## Runtime Dependencies
 
