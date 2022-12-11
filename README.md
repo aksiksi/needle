@@ -3,7 +3,7 @@
 [![Crates.io](https://img.shields.io/crates/v/needle-rs)](https://crates.io/crates/needle-rs)
 [![docs.rs](https://img.shields.io/docsrs/needle-rs?label=docs.rs)](https://docs.rs/needle-rs/)
 [![test](https://github.com/aksiksi/needle/actions/workflows/test.yml/badge.svg)](https://github.com/aksiksi/needle/actions/workflows/test.yml)
-[![release-needle](https://github.com/aksiksi/needle/actions/workflows/release-needle.yml/badge.svg)](https://github.com/aksiksi/needle/actions/workflows/publish-release.yml)
+[![release](https://github.com/aksiksi/needle/actions/workflows/release-needle.yml/badge.svg)](https://github.com/aksiksi/needle/actions/workflows/publish-release.yml)
 
 A tool that finds a needle (opening/intro and ending/credits) in a haystack (TV or anime episode).
 
@@ -115,14 +115,15 @@ There are currently two ways to install `needle`:
 2. `cargo install needle-rs`
     * **Prerequisites:** Install [build dependencies](#build) for your platform
 
-## Dependencies
+## Runtime Dependencies
 
 ### Linux (Debian/Ubuntu)
 
 Download the FFmpeg libraries:
 
 ```bash
-sudo apt install \
+sudo apt-get install \
+    libfftw3-3 \
     libavutil56 \
     libavformat58 \
     libswresample3 \
@@ -141,12 +142,13 @@ brew install ffmpeg
 
 ### Linux (Debian/Ubuntu)
 
-1. Install `cmake`, `FFmpeg` libraries, and `fftw3` (optional, but recommended):
+1. Install `pkg-config`, `cmake`, `libclang`, `fftw3` (optional, but recommended), and the `FFmpeg` libraries:
 
 ```bash
-sudo apt install \
+sudo apt-get install \
     pkg-config \
     cmake \
+    libclang-dev \
     libfftw3-dev \
     libavutil-dev \
     libavformat-dev \
@@ -167,9 +169,11 @@ This will **dynamically** link against FFmpeg and statically link `chromaprint`.
 Install libraries:
 
 ```bash
-sudo apt install \
+sudo apt-get install \
     pkg-config \
-    libchromaprint-dev \
+    cmake \
+    libclang-dev \
+    libfftw3-dev \
     libavutil-dev \
     libavformat-dev \
     libswresample-dev \
