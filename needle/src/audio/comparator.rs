@@ -717,30 +717,3 @@ impl<P: AsRef<Path> + Sync> Comparator<P> {
         )
     }
 }
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    use std::path::PathBuf;
-
-    fn get_sample_paths() -> Vec<PathBuf> {
-        let resources = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources");
-        vec![
-            resources.join("sample-5s.mp4"),
-            resources.join("sample-shifted-4s.mp4"),
-        ]
-    }
-
-    #[test]
-    fn test_comparator() {
-        // TODO(aksiksi): Make this test actually do something. Right now, it doesn't really detect anything
-        // because the clips are too short.
-        let paths = get_sample_paths();
-        let comparator = Comparator::from_files(paths)
-            .with_min_opening_duration(Duration::from_millis(300))
-            .with_min_ending_duration(Duration::from_millis(300));
-        let data = comparator.run(true, true, false, false, false).unwrap();
-        assert_eq!(data.len(), 2);
-    }
-}
