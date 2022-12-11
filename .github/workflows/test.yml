@@ -12,6 +12,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.event.repository.name }}
 
 jobs:
   linux:
@@ -21,7 +23,11 @@ jobs:
     - uses: Swatinem/rust-cache@v2
     - name: Install dependencies
       run: |
-        sudo apt install \
+        sudo apt-get install \
+          pkg-config \
+          cmake \
+          libclang-dev \
+          libfftw3-dev \
           libavutil-dev \
           libavformat-dev \
           libswresample-dev \
