@@ -79,7 +79,7 @@ pub struct SearchResult {
 #[derive(Debug)]
 pub struct Comparator<P: AsRef<Path>> {
     videos: Vec<P>,
-    openings_only: bool,
+    include_endings: bool,
     hash_match_threshold: u32,
     opening_search_percentage: f32,
     ending_search_percentage: f32,
@@ -92,7 +92,7 @@ impl<P: AsRef<Path>> Default for Comparator<P> {
     fn default() -> Self {
         Self {
             videos: Vec::new(),
-            openings_only: false,
+            include_endings: false,
             hash_match_threshold: super::DEFAULT_HASH_MATCH_THRESHOLD as u32,
             opening_search_percentage: super::DEFAULT_OPENING_SEARCH_PERCENTAGE,
             ending_search_percentage: super::DEFAULT_ENDING_SEARCH_PERCENTAGE,
@@ -126,9 +126,9 @@ impl<P: AsRef<Path>> Comparator<P> {
         &self.videos
     }
 
-    /// Returns a new [Comparator] with the provided `openings_only`.
-    pub fn with_openings_only(mut self, openings_only: bool) -> Self {
-        self.openings_only = openings_only;
+    /// Returns a new [Comparator] with the provided `include_endings`.
+    pub fn with_include_endings(mut self, include_endings: bool) -> Self {
+        self.include_endings = include_endings;
         self
     }
 
@@ -257,7 +257,7 @@ impl<P: AsRef<Path>> Comparator<P> {
                 let is_ending = (is_src_ending
                     && (src_end - src_start) >= self.min_ending_duration)
                     || (is_dst_ending && (dst_end - dst_start) >= self.min_ending_duration);
-                if is_ending && self.openings_only {
+                if !self.include_endings && is_ending {
                     j -= 1;
                     continue;
                 }
@@ -421,7 +421,7 @@ impl<P: AsRef<Path>> Comparator<P> {
         }
 
         // Disply ending information only when needed.
-        if !self.openings_only {
+        if self.include_endings {
             if let Some(ending) = result.ending {
                 let (start, end) = ending;
                 println!(
@@ -538,7 +538,7 @@ impl<P: AsRef<Path>> Comparator<P> {
         }
 
         // Ending search is optional, so we handle it accordingly.
-        if !self.openings_only {
+        if self.include_endings {
             let mut best_endings = distinct_matches
                 .iter()
                 .filter(|(k, _)| {
@@ -662,10 +662,10 @@ impl<P: AsRef<Path> + Sync> Comparator<P> {
             let result = self.find_best_match(&matches);
             if result.is_none() {
                 if display {
-                    if self.openings_only {
-                        println!("No opening found.");
-                    } else {
+                    if self.include_endings {
                         println!("No opening or ending found.");
+                    } else {
+                        println!("No opening found.");
                     }
                 }
                 continue;

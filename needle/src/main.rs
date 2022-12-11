@@ -101,7 +101,7 @@ enum Commands {
             long,
             default_value_t = audio::DEFAULT_ENDING_SEARCH_PERCENTAGE,
             value_parser = clap::value_parser!(f32),
-            help = "Specifies which portion of the end of the video the ending should be in. For example, if set to 0.25, only matches found in the last 25% of the video will be considered."
+            help = "Specifies which portion of the end of the video the ending should be in. For example, if set to 0.25, only matches found in the last 25% of the video will be considered. Note: this is only relevant with --include_endings."
         )]
         ending_search_percentage: f32,
 
@@ -117,7 +117,7 @@ enum Commands {
             long,
             default_value_t = audio::DEFAULT_MIN_ENDING_DURATION,
             value_parser = clap::value_parser!(u16),
-            help = "Minimum ending duration, in seconds. Setting a value that is close to the actual length helps reduce false positives (i.e., detecting an ending when there isn't one)."
+            help = "Minimum ending duration, in seconds. Note: this is only relevant with --include_endings."
         )]
         min_ending_duration: u16,
 
@@ -157,7 +157,7 @@ enum Commands {
             long,
             default_value = "false",
             action(ArgAction::SetTrue),
-            help = "Do not display results of the search in stdout."
+            help = "Do not display results of the search."
         )]
         no_display: bool,
 
@@ -165,9 +165,9 @@ enum Commands {
             long,
             default_value = "false",
             action(ArgAction::SetTrue),
-            help = "If set, needle will only search for openings."
+            help = "If set, needle will also search for endings."
         )]
-        openings_only: bool,
+        include_endings: bool,
     },
 }
 
@@ -312,7 +312,7 @@ fn main() -> needle::Result<()> {
             use_skip_files,
             write_skip_files,
             time_padding,
-            openings_only,
+            include_endings,
             ref paths,
         } => {
             let mut videos = args.find_video_files(paths);
@@ -332,7 +332,7 @@ fn main() -> needle::Result<()> {
             let min_ending_duration = Duration::from_secs(min_ending_duration.into());
             let time_padding = Duration::from_secs_f32(time_padding);
             let comparator = audio::Comparator::from_files(videos)
-                .with_openings_only(openings_only)
+                .with_include_endings(include_endings)
                 .with_hash_match_threshold(hash_match_threshold as u32)
                 .with_opening_search_percentage(opening_search_percentage)
                 .with_ending_search_percentage(ending_search_percentage)
