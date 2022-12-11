@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-    - uses: Swatinem/rust-cache@v1
+    - uses: Swatinem/rust-cache@v2
     - name: Install dependencies
       run: |
         sudo apt install \
@@ -36,7 +36,7 @@ jobs:
     runs-on: macos-latest
     steps:
     - uses: actions/checkout@v3
-    - uses: Swatinem/rust-cache@v1
+    - uses: Swatinem/rust-cache@v2
     - name: Install dependencies
       run: brew install ffmpeg
     - name: Test needle
@@ -52,14 +52,14 @@ jobs:
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-bincache
     steps:
     - uses: actions/checkout@v3
-    - uses: Swatinem/rust-cache@v1
+    - uses: Swatinem/rust-cache@v2
     - name: "Create directory '${{ env.VCPKG_DEFAULT_BINARY_CACHE }}'"
       run: mkdir -p $VCPKG_DEFAULT_BINARY_CACHE
       shell: bash
     - name: Install cargo-vcpkg
       run: cargo install cargo-vcpkg
     - name: Restore vcpkg and its artifacts.
-      uses: actions/cache@v2
+      uses: actions/cache@v3
       env:
         cache-name: cache-vcpkg
       with:

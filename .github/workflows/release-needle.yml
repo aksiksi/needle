@@ -46,7 +46,7 @@ jobs:
       TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
     steps:
       - uses: actions/checkout@v3
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
       - name: Install dependencies
         run: |
           sudo apt install \
@@ -72,7 +72,7 @@ jobs:
       TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
     steps:
       - uses: actions/checkout@v3
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
       - name: Install dependencies
         run: brew install ffmpeg
       - name: Build release version
@@ -94,7 +94,7 @@ jobs:
       TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
     steps:
       - uses: actions/checkout@v3
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
       - name: "Create directory '${{ env.VCPKG_DEFAULT_BINARY_CACHE }}'"
         run: mkdir -p $VCPKG_DEFAULT_BINARY_CACHE
         shell: bash
@@ -103,7 +103,7 @@ jobs:
       # Restore both vcpkg and its artifacts from the GH cache service.
       # Taken from here: https://github.com/lukka/CppCMakeVcpkgTemplate/blob/main/.github/workflows/hosted-pure-workflow.yml
       - name: Restore vcpkg and its artifacts.
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         env:
           cache-name: cache-vcpkg
         with:
