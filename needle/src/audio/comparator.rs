@@ -295,8 +295,8 @@ impl<P: AsRef<Path>> Comparator<P> {
 
     fn find_opening_and_ending(
         &self,
-        src_hashes: &super::analyzer::FrameHashes,
-        dst_hashes: &super::analyzer::FrameHashes,
+        src_hashes: &FrameHashes,
+        dst_hashes: &FrameHashes,
     ) -> OpeningAndEndingInfo {
         let _g = tracing::span!(tracing::Level::TRACE, "find_opening_and_ending");
 

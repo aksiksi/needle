@@ -1,7 +1,9 @@
 mod analyzer;
 mod comparator;
+mod data;
 
-pub use analyzer::{Analyzer, FrameHashes};
+pub use analyzer::Analyzer;
+pub use data::FrameHashes;
 pub use comparator::{Comparator, SearchResult};
 
 /// Default hash match threshold.
