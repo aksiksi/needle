@@ -53,6 +53,22 @@ enum Commands {
 
         #[clap(
             long,
+            default_value_t = audio::DEFAULT_OPENING_SEARCH_PERCENTAGE,
+            value_parser = clap::value_parser!(f32),
+            help = "Specifies which portion of the start of the video the opening should be in. For example, if set to 0.25, only matches found in the first 25% of the video will be considered."
+        )]
+        opening_search_percentage: f32,
+
+        #[clap(
+            long,
+            default_value_t = audio::DEFAULT_ENDING_SEARCH_PERCENTAGE,
+            value_parser = clap::value_parser!(f32),
+            help = "Specifies which portion of the end of the video the ending should be in. For example, if set to 0.25, only matches found in the last 25% of the video will be considered. Note: this is only relevant with --include_endings."
+        )]
+        ending_search_percentage: f32,
+
+        #[clap(
+            long,
             default_value = "false",
             action(ArgAction::SetTrue),
             help = "Enable multi-threaded decoding in FFmpeg."
@@ -88,22 +104,6 @@ enum Commands {
             help = "Threshold to use when comparing hashes. The range is 0 (exact match) to 32 (no match).",
         )]
         hash_match_threshold: u16,
-
-        #[clap(
-            long,
-            default_value_t = audio::DEFAULT_OPENING_SEARCH_PERCENTAGE,
-            value_parser = clap::value_parser!(f32),
-            help = "Specifies which portion of the start of the video the opening should be in. For example, if set to 0.25, only matches found in the first 25% of the video will be considered."
-        )]
-        opening_search_percentage: f32,
-
-        #[clap(
-            long,
-            default_value_t = audio::DEFAULT_ENDING_SEARCH_PERCENTAGE,
-            value_parser = clap::value_parser!(f32),
-            help = "Specifies which portion of the end of the video the ending should be in. For example, if set to 0.25, only matches found in the last 25% of the video will be considered. Note: this is only relevant with --include_endings."
-        )]
-        ending_search_percentage: f32,
 
         #[clap(
             long,
@@ -160,14 +160,6 @@ enum Commands {
             help = "Do not display results of the search."
         )]
         no_display: bool,
-
-        #[clap(
-            long,
-            default_value = "false",
-            action(ArgAction::SetTrue),
-            help = "If set, needle will also search for endings."
-        )]
-        include_endings: bool,
     },
 }
 
@@ -194,6 +186,14 @@ struct Cli {
         help = "By default, video files are validated using FFmpeg, which is extremely accurate. Setting this flag will switch to just checking file headers."
     )]
     file_headers_only: bool,
+
+    #[clap(
+        long,
+        default_value = "false",
+        action(ArgAction::SetTrue),
+        help = "If set, needle will also consider endings during both analysis and search."
+    )]
+    include_endings: bool,
 }
 
 impl Cli {
@@ -204,6 +204,8 @@ impl Cli {
             Commands::Analyze {
                 hash_period,
                 hash_duration,
+                opening_search_percentage,
+                ending_search_percentage,
                 ..
             } => {
                 if hash_period <= 0.0 {
@@ -220,13 +222,6 @@ impl Cli {
                     )
                     .exit();
                 }
-            }
-            Commands::Search {
-                opening_search_percentage,
-                ending_search_percentage,
-                hash_match_threshold,
-                ..
-            } => {
                 if opening_search_percentage >= 1.0 {
                     cmd.error(
                         ErrorKind::InvalidValue,
@@ -241,6 +236,11 @@ impl Cli {
                     )
                     .exit();
                 }
+            }
+            Commands::Search {
+                hash_match_threshold,
+                ..
+            } => {
                 if hash_match_threshold > 32 {
                     cmd.error(
                         ErrorKind::InvalidValue,
@@ -284,6 +284,8 @@ fn main() -> needle::Result<()> {
             ref mode,
             hash_period,
             hash_duration,
+            opening_search_percentage,
+            ending_search_percentage,
             threaded_decoding,
             force,
             ref paths,
@@ -291,7 +293,11 @@ fn main() -> needle::Result<()> {
             Mode::Audio => {
                 let mut videos = args.find_video_files(paths);
                 videos.sort();
-                let analyzer = audio::Analyzer::from_files(videos, threaded_decoding, force);
+                let analyzer = audio::Analyzer::from_files(videos, threaded_decoding, force)
+                    .with_opening_search_percentage(opening_search_percentage)
+                    .with_ending_search_percentage(ending_search_percentage)
+                    .with_include_endings(args.include_endings);
+
                 analyzer.run(hash_period, hash_duration, true, !args.no_threading)?;
             }
             #[cfg(feature = "video")]
@@ -303,8 +309,6 @@ fn main() -> needle::Result<()> {
         },
         Commands::Search {
             hash_match_threshold,
-            opening_search_percentage,
-            ending_search_percentage,
             min_opening_duration,
             min_ending_duration,
             analyze,
@@ -312,7 +316,6 @@ fn main() -> needle::Result<()> {
             use_skip_files,
             write_skip_files,
             time_padding,
-            include_endings,
             ref paths,
         } => {
             let mut videos = args.find_video_files(paths);
@@ -332,10 +335,8 @@ fn main() -> needle::Result<()> {
             let min_ending_duration = Duration::from_secs(min_ending_duration.into());
             let time_padding = Duration::from_secs_f32(time_padding);
             let comparator = audio::Comparator::from_files(videos)
-                .with_include_endings(include_endings)
+                .with_include_endings(args.include_endings)
                 .with_hash_match_threshold(hash_match_threshold as u32)
-                .with_opening_search_percentage(opening_search_percentage)
-                .with_ending_search_percentage(ending_search_percentage)
                 .with_min_opening_duration(min_opening_duration)
                 .with_min_ending_duration(min_ending_duration)
                 .with_time_padding(time_padding);

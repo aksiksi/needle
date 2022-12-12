@@ -1,6 +1,7 @@
 mod analyzer;
 mod comparator;
 mod data;
+mod util;
 
 pub use analyzer::Analyzer;
 pub use data::FrameHashes;

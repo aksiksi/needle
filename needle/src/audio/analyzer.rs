@@ -85,6 +85,9 @@ impl Decoder {
 #[derive(Debug)]
 pub struct Analyzer<P: AsRef<Path>> {
     pub(crate) videos: Vec<P>,
+    opening_search_percentage: f32,
+    ending_search_percentage: f32,
+    include_endings: bool,
     threaded_decoding: bool,
     force: bool,
 }
@@ -93,6 +96,9 @@ impl<P: AsRef<Path>> Default for Analyzer<P> {
     fn default() -> Self {
         Self {
             videos: Default::default(),
+            opening_search_percentage: super::DEFAULT_OPENING_SEARCH_PERCENTAGE,
+            ending_search_percentage: super::DEFAULT_ENDING_SEARCH_PERCENTAGE,
+            include_endings: false,
             threaded_decoding: false,
             force: false,
         }
@@ -102,11 +108,11 @@ impl<P: AsRef<Path>> Default for Analyzer<P> {
 impl<P: AsRef<Path>> Analyzer<P> {
     /// Constructs a new [Analyzer] from a list of video paths.
     pub fn from_files(videos: impl Into<Vec<P>>, threaded_decoding: bool, force: bool) -> Self {
-        Self {
-            videos: videos.into(),
-            threaded_decoding,
-            force,
-        }
+        let mut analyzer = Self::default()
+            .with_threaded_decoding(threaded_decoding)
+            .with_force(force);
+        analyzer.videos = videos.into();
+        analyzer
     }
 
     /// Returns the video paths used by this analyzer.
@@ -114,15 +120,33 @@ impl<P: AsRef<Path>> Analyzer<P> {
         &self.videos
     }
 
-    /// Returns a new [Analyzer] with `force` set to the provided value.
-    pub fn with_force(mut self, force: bool) -> Self {
-        self.force = force;
+    /// Returns a new [Analyzer] with the provided `opening_search_percentage`.
+    pub fn with_opening_search_percentage(mut self, opening_search_percentage: f32) -> Self {
+        self.opening_search_percentage = opening_search_percentage;
+        self
+    }
+
+    /// Returns a new [Analyzer] with the provided `ending_search_percentage`.
+    pub fn with_ending_search_percentage(mut self, ending_search_percentage: f32) -> Self {
+        self.ending_search_percentage = ending_search_percentage;
+        self
+    }
+
+    /// Returns a new [Analyzer] with the provided `include_endings`.
+    pub fn with_include_endings(mut self, include_endings: bool) -> Self {
+        self.include_endings = include_endings;
         self
     }
 
     /// Returns a new [Analyzer] with `thread_decoding` set to the provided value.
     pub fn with_threaded_decoding(mut self, threaded_decoding: bool) -> Self {
         self.threaded_decoding = threaded_decoding;
+        self
+    }
+
+    /// Returns a new [Analyzer] with `force` set to the provided value.
+    pub fn with_force(mut self, force: bool) -> Self {
+        self.force = force;
         self
     }
 
@@ -136,8 +160,6 @@ impl<P: AsRef<Path>> Analyzer<P> {
     }
 
     // Given an audio stream, computes the fingerprint for raw audio for the given duration.
-    //
-    // `count` can be used to limit the number of frames to process.
     fn process_frames(
         ctx: &mut ffmpeg_next::format::context::Input,
         stream_idx: usize,
@@ -286,7 +308,7 @@ impl<P: AsRef<Path>> Analyzer<P> {
             path.display(),
         );
 
-        let frame_hashes = FrameHashes::new_v1(frame_hashes, hash_duration, md5);
+        let frame_hashes = FrameHashes::new_v1(frame_hashes.clone(), frame_hashes, hash_duration, md5);
 
         // Write results to disk.
         if persist {

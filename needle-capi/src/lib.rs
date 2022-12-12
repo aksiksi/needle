@@ -352,7 +352,16 @@ pub extern "C" fn needle_audio_analyzer_new_default(
     num_paths: libc::size_t,
     output: *mut *mut NeedleAudioAnalyzer,
 ) -> NeedleError {
-    needle_audio_analyzer_new(paths, num_paths, false, false, output)
+    needle_audio_analyzer_new(
+        paths,
+        num_paths,
+        needle::audio::DEFAULT_OPENING_SEARCH_PERCENTAGE,
+        needle::audio::DEFAULT_ENDING_SEARCH_PERCENTAGE,
+        false,
+        false,
+        false,
+        output,
+    )
 }
 
 /// Constructs a new [NeedleAudioAnalyzer].
@@ -360,6 +369,9 @@ pub extern "C" fn needle_audio_analyzer_new_default(
 pub extern "C" fn needle_audio_analyzer_new(
     paths: *const *const libc::c_char,
     num_paths: libc::size_t,
+    opening_search_percentage: f32,
+    ending_search_percentage: f32,
+    include_endings: bool,
     threaded_decoding: bool,
     force: bool,
     output: *mut *mut NeedleAudioAnalyzer,
@@ -373,7 +385,10 @@ pub extern "C" fn needle_audio_analyzer_new(
         Err(e) => return e,
     };
 
-    let analyzer = audio::Analyzer::from_files(paths, threaded_decoding, force);
+    let analyzer = audio::Analyzer::from_files(paths, threaded_decoding, force)
+        .with_opening_search_percentage(opening_search_percentage)
+        .with_ending_search_percentage(ending_search_percentage)
+        .with_include_endings(include_endings);
 
     // SAFETY:
     //
@@ -530,8 +545,6 @@ pub extern "C" fn needle_audio_comparator_new_default(
         num_paths,
         false,
         audio::DEFAULT_HASH_MATCH_THRESHOLD,
-        audio::DEFAULT_OPENING_SEARCH_PERCENTAGE,
-        audio::DEFAULT_ENDING_SEARCH_PERCENTAGE,
         audio::DEFAULT_MIN_OPENING_DURATION,
         audio::DEFAULT_MIN_ENDING_DURATION,
         0.0,
@@ -546,8 +559,6 @@ pub extern "C" fn needle_audio_comparator_new(
     num_paths: libc::size_t,
     include_endings: bool,
     hash_match_threshold: u16,
-    opening_search_percentage: f32,
-    ending_search_percentage: f32,
     min_opening_duration: u16,
     min_ending_duration: u16,
     time_padding: f32,
@@ -571,8 +582,6 @@ pub extern "C" fn needle_audio_comparator_new(
     let comparator = audio::Comparator::from_files(paths)
         .with_include_endings(include_endings)
         .with_hash_match_threshold(hash_match_threshold as u32)
-        .with_opening_search_percentage(opening_search_percentage)
-        .with_ending_search_percentage(ending_search_percentage)
         .with_min_opening_duration(min_opening_duration)
         .with_min_ending_duration(min_ending_duration)
         .with_time_padding(time_padding);
@@ -677,7 +686,7 @@ mod test {
         let num_paths = paths.len();
         let mut analyzer = std::ptr::null_mut();
         let error =
-            needle_audio_analyzer_new(path_ptrs.as_ptr(), num_paths, false, false, &mut analyzer);
+            needle_audio_analyzer_new_default(path_ptrs.as_ptr(), num_paths, &mut analyzer);
         assert_eq!(error, NeedleError::Ok);
         assert_ne!(analyzer, std::ptr::null_mut());
         needle_audio_analyzer_free(analyzer);
@@ -707,8 +716,6 @@ mod test {
             num_paths,
             false,
             10,
-            0.33,
-            0.2,
             10,
             10,
             0.0,

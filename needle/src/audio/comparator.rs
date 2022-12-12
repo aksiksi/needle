@@ -138,18 +138,6 @@ impl<P: AsRef<Path>> Comparator<P> {
         self
     }
 
-    /// Returns a new [Comparator] with the provided `opening_search_percentage`.
-    pub fn with_opening_search_percentage(mut self, opening_search_percentage: f32) -> Self {
-        self.opening_search_percentage = opening_search_percentage;
-        self
-    }
-
-    /// Returns a new [Comparator] with the provided `ending_search_percentage`.
-    pub fn with_ending_search_percentage(mut self, ending_search_percentage: f32) -> Self {
-        self.ending_search_percentage = ending_search_percentage;
-        self
-    }
-
     /// Returns a new [Comparator] with the provided `min_opening_duration`.
     pub fn with_min_opening_duration(mut self, min_opening_duration: Duration) -> Self {
         self.min_opening_duration = min_opening_duration;
@@ -300,8 +288,8 @@ impl<P: AsRef<Path>> Comparator<P> {
     ) -> OpeningAndEndingInfo {
         let _g = tracing::span!(tracing::Level::TRACE, "find_opening_and_ending");
 
-        let src_hash_data = src_hashes.data();
-        let dst_hash_data = dst_hashes.data();
+        let src_hash_data = src_hashes.opening_data();
+        let dst_hash_data = dst_hashes.opening_data();
         let src_hash_duration = Duration::from_secs_f32(src_hashes.hash_duration());
         let dst_hash_duration = Duration::from_secs_f32(dst_hashes.hash_duration());
 
