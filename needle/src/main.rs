@@ -71,6 +71,14 @@ enum Commands {
             long,
             default_value = "false",
             action(ArgAction::SetTrue),
+            help = "If set, needle will also consider endings during the analysis."
+        )]
+        include_endings: bool,
+
+        #[clap(
+            long,
+            default_value = "false",
+            action(ArgAction::SetTrue),
             help = "Enable multi-threaded decoding in FFmpeg."
         )]
         threaded_decoding: bool,
@@ -157,6 +165,14 @@ enum Commands {
             long,
             default_value = "false",
             action(ArgAction::SetTrue),
+            help = "If set, needle will also consider endings during the search."
+        )]
+        include_endings: bool,
+
+        #[clap(
+            long,
+            default_value = "false",
+            action(ArgAction::SetTrue),
             help = "Do not display results of the search."
         )]
         no_display: bool,
@@ -186,14 +202,6 @@ struct Cli {
         help = "By default, video files are validated using FFmpeg, which is extremely accurate. Setting this flag will switch to just checking file headers."
     )]
     file_headers_only: bool,
-
-    #[clap(
-        long,
-        default_value = "false",
-        action(ArgAction::SetTrue),
-        help = "If set, needle will also consider endings during both analysis and search."
-    )]
-    include_endings: bool,
 }
 
 impl Cli {
@@ -276,6 +284,9 @@ fn main() -> needle::Result<()> {
 
     ffmpeg_next::init().unwrap();
 
+    // Set a high FFmpeg log level to reduce logging verbosity.
+    ffmpeg_next::util::log::set_level(ffmpeg_next::util::log::Level::Fatal);
+
     let args = Cli::parse();
     args.validate();
 
@@ -286,6 +297,7 @@ fn main() -> needle::Result<()> {
             hash_duration,
             opening_search_percentage,
             ending_search_percentage,
+            include_endings,
             threaded_decoding,
             force,
             ref paths,
@@ -296,7 +308,7 @@ fn main() -> needle::Result<()> {
                 let analyzer = audio::Analyzer::from_files(videos, threaded_decoding, force)
                     .with_opening_search_percentage(opening_search_percentage)
                     .with_ending_search_percentage(ending_search_percentage)
-                    .with_include_endings(args.include_endings);
+                    .with_include_endings(include_endings);
 
                 analyzer.run(hash_period, hash_duration, true, !args.no_threading)?;
             }
@@ -313,6 +325,7 @@ fn main() -> needle::Result<()> {
             min_ending_duration,
             analyze,
             no_display,
+            include_endings,
             use_skip_files,
             write_skip_files,
             time_padding,
@@ -335,7 +348,7 @@ fn main() -> needle::Result<()> {
             let min_ending_duration = Duration::from_secs(min_ending_duration.into());
             let time_padding = Duration::from_secs_f32(time_padding);
             let comparator = audio::Comparator::from_files(videos)
-                .with_include_endings(args.include_endings)
+                .with_include_endings(include_endings)
                 .with_hash_match_threshold(hash_match_threshold as u32)
                 .with_min_opening_duration(min_opening_duration)
                 .with_min_ending_duration(min_ending_duration)

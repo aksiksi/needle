@@ -11,8 +11,8 @@ use std::time::Duration;
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
 
-use crate::{Error, Result};
 use super::FrameHashes;
+use crate::{Error, Result};
 
 /// Thin wrapper around the native `FFmpeg` audio decoder.
 struct Decoder {
@@ -150,27 +150,23 @@ impl<P: AsRef<Path>> Analyzer<P> {
         self
     }
 
-    fn find_best_audio_stream(
-        input: &ffmpeg_next::format::context::Input,
-    ) -> ffmpeg_next::format::stream::Stream {
-        input
-            .streams()
-            .best(ffmpeg_next::media::Type::Audio)
-            .expect("unable to find an audio stream")
-    }
-
     // Given an audio stream, computes the fingerprint for raw audio for the given duration.
+    //
+    // If `seek_to` is set, this method will first seek to the given timestamp.
     fn process_frames(
         ctx: &mut ffmpeg_next::format::context::Input,
         stream_idx: usize,
         hash_duration: Duration,
         hash_period: Duration,
+        duration: Option<Duration>,
+        seek_to: Option<Duration>,
         threaded: bool,
     ) -> Result<Vec<(u32, Duration)>> {
         let span = tracing::span!(tracing::Level::TRACE, "process_frames");
         let _enter = span.enter();
 
         let stream = ctx.stream(stream_idx).unwrap();
+        let time_base = stream.time_base();
         let mut decoder = Decoder::from_stream(stream, threaded).unwrap();
 
         let mut hashes = Vec::new();
@@ -193,11 +189,28 @@ impl<P: AsRef<Path>> Analyzer<P> {
             )
             .unwrap();
 
+        // If required, seek to the given position in the stream.
+        if let Some(seek_to) = seek_to {
+            super::util::seek_to_timestamp(ctx, time_base, seek_to)?;
+        }
+
+        // Compute the end timestamp.
+        let end_timestamp = duration.map(|d| seek_to.unwrap_or(Duration::ZERO) + d);
+
         // Build an iterator over packets in the stream.
         let audio_packets = ctx
             .packets()
             .filter(|(s, _)| s.index() == stream_idx)
-            .map(|(_, p)| p);
+            .map(|(_, p)| p)
+            .take_while(|p| {
+                if end_timestamp.is_none() {
+                    true
+                } else {
+                    let pts = p.pts().unwrap();
+                    let pts = super::util::to_timestamp(time_base, pts);
+                    pts < end_timestamp.unwrap()
+                }
+            });
 
         for p in audio_packets {
             decoder.send_packet(&p).unwrap();
@@ -261,6 +274,12 @@ impl<P: AsRef<Path>> Analyzer<P> {
             }
         }
 
+        if let Some(seek_to) = seek_to {
+            for (_, ts) in &mut hashes {
+                *ts += seek_to;
+            }
+        }
+
         Ok(hashes)
     }
 
@@ -290,25 +309,49 @@ impl<P: AsRef<Path>> Analyzer<P> {
         }
 
         let mut ctx = ffmpeg_next::format::input(&path)?;
-        let stream = Self::find_best_audio_stream(&ctx);
+        let stream = super::util::find_best_audio_stream(&ctx);
         let stream_idx = stream.index();
         let threaded = self.threaded_decoding;
 
+        // Duration of the stream, in time base units * 1000.
+        let stream_duration_raw = ctx.duration() / 1000;
+        let stream_duration = super::util::to_timestamp(stream.time_base(), stream_duration_raw);
+
+        let opening_duration = stream_duration.mul_f32(self.opening_search_percentage);
+        let ending_seek_to = stream_duration.mul_f32(1.0 - self.ending_search_percentage);
+
         tracing::debug!("starting frame processing for {}", path.display());
-        let frame_hashes = Self::process_frames(
+
+        let opening_hashes = Self::process_frames(
             &mut ctx,
             stream_idx,
             Duration::from_secs_f32(hash_duration),
             Duration::from_secs_f32(hash_period),
+            Some(opening_duration),
+            None,
             threaded,
         )?;
+        let mut ending_hashes = Vec::new();
+        if self.include_endings {
+            ending_hashes.extend(Self::process_frames(
+                &mut ctx,
+                stream_idx,
+                Duration::from_secs_f32(hash_duration),
+                Duration::from_secs_f32(hash_period),
+                None,
+                Some(ending_seek_to),
+                threaded,
+            )?);
+        }
+
         tracing::debug!(
-            num_hashes = frame_hashes.len(),
+            opening_hashes = opening_hashes.len(),
+            ending_hashes = ending_hashes.len(),
             "completed frame processing for {}",
             path.display(),
         );
 
-        let frame_hashes = FrameHashes::new_v1(frame_hashes.clone(), frame_hashes, hash_duration, md5);
+        let frame_hashes = FrameHashes::new_v1(opening_hashes, ending_hashes, hash_duration, md5);
 
         // Write results to disk.
         if persist {

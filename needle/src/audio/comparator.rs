@@ -81,8 +81,6 @@ pub struct Comparator<P: AsRef<Path>> {
     videos: Vec<P>,
     include_endings: bool,
     hash_match_threshold: u32,
-    opening_search_percentage: f32,
-    ending_search_percentage: f32,
     min_opening_duration: Duration,
     min_ending_duration: Duration,
     time_padding: Duration,
@@ -94,8 +92,6 @@ impl<P: AsRef<Path>> Default for Comparator<P> {
             videos: Vec::new(),
             include_endings: false,
             hash_match_threshold: super::DEFAULT_HASH_MATCH_THRESHOLD as u32,
-            opening_search_percentage: super::DEFAULT_OPENING_SEARCH_PERCENTAGE,
-            ending_search_percentage: super::DEFAULT_ENDING_SEARCH_PERCENTAGE,
             min_opening_duration: Duration::from_secs(super::DEFAULT_MIN_OPENING_DURATION as u64),
             min_ending_duration: Duration::from_secs(super::DEFAULT_MIN_ENDING_DURATION as u64),
             time_padding: Duration::ZERO,
@@ -168,13 +164,16 @@ impl<P: AsRef<Path>> Comparator<P> {
         &self,
         src: &[(u32, Duration)],
         dst: &[(u32, Duration)],
-        src_max_opening_time: Duration,
-        src_min_ending_time: Duration,
-        dst_max_opening_time: Duration,
-        dst_min_ending_time: Duration,
         src_hash_duration: Duration,
         dst_hash_duration: Duration,
+        is_opening: bool,
     ) -> Vec<ComparatorHeapEntry> {
+        if src.len() == 0 || dst.len() == 0 {
+            return Vec::new();
+        }
+
+        let is_ending = !is_opening;
+
         // Heap to keep track of best hash matches in order of length.
         let mut heap: ComparatorHeap = BinaryHeap::new();
 
@@ -195,17 +194,14 @@ impl<P: AsRef<Path>> Comparator<P> {
 
         // Walk through the table and find all valid substrings and insert them into
         // the heap.
-        let mut i = src.len() - 1;
-        while i > 0 {
-            let mut j = dst.len() - 1;
-            while j > 0 {
+        for i in (1..src.len()).rev() {
+            for j in (1..dst.len()).rev() {
                 // We need to find an entry where the current entry is non-zero
                 // and the next entry is zero. This indicates that we are at the end
                 // of a substring.
                 if table[i][j] == 0
                     || (i < src.len() - 1 && j < dst.len() - 1 && table[i + 1][j + 1] != 0)
                 {
-                    j -= 1;
                     continue;
                 }
 
@@ -217,36 +213,18 @@ impl<P: AsRef<Path>> Comparator<P> {
                 let (dst_start_idx, dst_end_idx) = (j - table[i][j], j);
                 let (src_start, src_end) = (src[src_start_idx].1, src[src_end_idx].1);
                 let (dst_start, dst_end) = (dst[dst_start_idx].1, dst[dst_end_idx].1);
-                let (is_src_opening, is_src_ending) = (
-                    src_end < src_max_opening_time,
-                    src_start > src_min_ending_time,
-                );
-                let (is_dst_opening, is_dst_ending) = (
-                    dst_end < dst_max_opening_time,
-                    dst_start > dst_min_ending_time,
-                );
 
                 // A LCS result is only valid iff it is a valid opening or ending in the source _and_ the dest.
-                let is_src_valid = (is_src_opening
+                let is_src_valid = (is_opening
                     && (src_end - src_start) >= self.min_opening_duration)
-                    || (is_src_ending && (src_end - src_start) >= self.min_ending_duration);
-                let is_dst_valid = (is_dst_opening
+                    || (is_ending && (src_end - src_start) >= self.min_ending_duration);
+                let is_dst_valid = (is_opening
                     && (dst_end - dst_start) >= self.min_opening_duration)
-                    || (is_dst_ending && (dst_end - dst_start) >= self.min_ending_duration);
+                    || (is_ending && (dst_end - dst_start) >= self.min_ending_duration);
                 let is_valid = is_src_valid && is_dst_valid;
 
                 // Skip invalid sequences.
                 if !is_valid {
-                    j -= 1;
-                    continue;
-                }
-
-                // If we do not need endings, skip them now.
-                let is_ending = (is_src_ending
-                    && (src_end - src_start) >= self.min_ending_duration)
-                    || (is_dst_ending && (dst_end - dst_start) >= self.min_ending_duration);
-                if !self.include_endings && is_ending {
-                    j -= 1;
                     continue;
                 }
 
@@ -262,20 +240,16 @@ impl<P: AsRef<Path>> Comparator<P> {
                     dst_longest_run: (dst_start, dst_end),
                     src_match_hash,
                     dst_match_hash,
-                    is_src_opening,
-                    is_src_ending,
-                    is_dst_opening,
-                    is_dst_ending,
+                    is_src_opening: is_opening,
+                    is_src_ending: is_ending,
+                    is_dst_opening: is_opening,
+                    is_dst_ending: is_ending,
                     src_hash_duration,
                     dst_hash_duration,
                 };
 
                 heap.push(entry);
-
-                j -= 1;
             }
-
-            i -= 1;
         }
 
         heap.into()
@@ -288,40 +262,30 @@ impl<P: AsRef<Path>> Comparator<P> {
     ) -> OpeningAndEndingInfo {
         let _g = tracing::span!(tracing::Level::TRACE, "find_opening_and_ending");
 
-        let src_hash_data = src_hashes.opening_data();
-        let dst_hash_data = dst_hashes.opening_data();
         let src_hash_duration = Duration::from_secs_f32(src_hashes.hash_duration());
         let dst_hash_duration = Duration::from_secs_f32(dst_hashes.hash_duration());
 
-        // Figure out the duration limits for opening and endings.
-        let src_opening_search_idx =
-            ((src_hash_data.len() - 1) as f32 * self.opening_search_percentage) as usize;
-        let src_ending_search_idx =
-            ((src_hash_data.len() - 1) as f32 * (1.0 - self.ending_search_percentage)) as usize;
-        let dst_opening_search_idx =
-            ((dst_hash_data.len() - 1) as f32 * self.opening_search_percentage) as usize;
-        let dst_ending_search_idx =
-            ((dst_hash_data.len() - 1) as f32 * (1.0 - self.ending_search_percentage)) as usize;
-        let src_max_opening_time = src_hash_data[src_opening_search_idx].1;
-        let src_min_ending_time = src_hash_data[src_ending_search_idx].1;
-        let dst_max_opening_time = dst_hash_data[dst_opening_search_idx].1;
-        let dst_min_ending_time = dst_hash_data[dst_ending_search_idx].1;
-
-        let entries = self.longest_common_hash_match(
-            src_hash_data,
-            dst_hash_data,
-            src_max_opening_time,
-            src_min_ending_time,
-            dst_max_opening_time,
-            dst_min_ending_time,
+        let mut entries = Vec::new();
+        entries.extend(self.longest_common_hash_match(
+            src_hashes.opening_data(),
+            dst_hashes.opening_data(),
             src_hash_duration,
             dst_hash_duration,
-        );
-
-        tracing::debug!(
-            num_matches = entries.len(),
-            "finished sliding window analysis"
-        );
+            true,
+        ));
+        if self.include_endings {
+            if src_hashes.ending_data().len() == 0 || dst_hashes.ending_data().len() == 0 {
+                // TODO(aksiksi): Return an error here.
+                todo!()
+            }
+            entries.extend(self.longest_common_hash_match(
+                src_hashes.ending_data(),
+                dst_hashes.ending_data(),
+                src_hash_duration,
+                dst_hash_duration,
+                false,
+            ));
+        }
 
         let (mut src_valid_openings, mut src_valid_endings) = (Vec::new(), Vec::new());
         let (mut dst_valid_openings, mut dst_valid_endings) = (Vec::new(), Vec::new());

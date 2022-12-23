@@ -47,7 +47,9 @@ impl FrameHashesV1 {
 
 #[derive(Debug, Deserialize, Serialize)]
 enum FrameHashesData {
-    // IMPORTANT: Removing or modifying any of these variants is a breaking change.
+    // IMPORTANT: Removing and/or modifying any of these variants is a breaking change
+    // to the on-disk binary format. To avoid this, just add a new format version
+    // instead.
     V1(FrameHashesV1),
 }
 
