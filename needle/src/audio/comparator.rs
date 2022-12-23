@@ -262,8 +262,8 @@ impl<P: AsRef<Path>> Comparator<P> {
     ) -> OpeningAndEndingInfo {
         let _g = tracing::span!(tracing::Level::TRACE, "find_opening_and_ending");
 
-        let src_hash_duration = Duration::from_secs_f32(src_hashes.hash_duration());
-        let dst_hash_duration = Duration::from_secs_f32(dst_hashes.hash_duration());
+        let src_hash_duration = src_hashes.hash_duration();
+        let dst_hash_duration = dst_hashes.hash_duration();
 
         let mut entries = Vec::new();
         entries.extend(self.longest_common_hash_match(
