@@ -20,7 +20,7 @@ int main() {
 
     needle_audio_analyzer_print_paths(analyzer);
 
-    err = needle_audio_analyzer_run(analyzer, false, true);
+    err = needle_audio_analyzer_run(analyzer, 0.3, 3.0, false, true);
     if (err != 0) {
         printf("Failed to run analyzer: %s\n", needle_error_to_str(err));
         goto done;

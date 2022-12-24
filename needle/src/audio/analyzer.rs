@@ -156,10 +156,12 @@ impl<P: AsRef<Path>> Analyzer<P> {
     fn process_frames(
         ctx: &mut ffmpeg_next::format::context::Input,
         stream_idx: usize,
+        hash_duration: Duration,
+        hash_period: Duration,
         duration: Option<Duration>,
         seek_to: Option<Duration>,
         threaded: bool,
-    ) -> Result<(Vec<(u32, Duration)>, Duration)> {
+    ) -> Result<Vec<(u32, Duration)>> {
         let span = tracing::span!(tracing::Level::TRACE, "process_frames");
         let _enter = span.enter();
 
@@ -171,8 +173,10 @@ impl<P: AsRef<Path>> Analyzer<P> {
         let mut frame = ffmpeg_next::frame::Audio::empty();
         let mut frame_resampled = ffmpeg_next::frame::Audio::empty();
 
-        let mut fingerprinter = chromaprint::Context::default();
-        fingerprinter.start(fingerprinter.sample_rate(), 2).unwrap();
+        // Setup the audio fingerprinter
+        let n = f32::ceil(hash_duration.as_secs_f32() / hash_period.as_secs_f32()) as usize;
+        let mut fingerprinter =
+            chromaprint::DelayedFingerprinter::new(n, hash_duration, hash_period, None, 2, None);
 
         // Setup the audio resampler
         let target_sample_rate = fingerprinter.sample_rate();
@@ -256,7 +260,10 @@ impl<P: AsRef<Path>> Analyzer<P> {
 
                     // Feed the i16 samples to Chromaprint. Since we are using the default sampling rate,
                     // Chromaprint will _not_ do any resampling internally.
-                    fingerprinter.feed(samples).unwrap();
+                    for (raw_fingerprint, ts) in fingerprinter.feed(samples).unwrap() {
+                        let hash = chromaprint::simhash::simhash32(raw_fingerprint.get());
+                        hashes.push((hash, ts));
+                    }
 
                     if delay.is_none() {
                         break;
@@ -267,34 +274,20 @@ impl<P: AsRef<Path>> Analyzer<P> {
             }
         }
 
-        fingerprinter.finish().unwrap();
-
-        let fingerprint_delay = fingerprinter.get_delay().unwrap();
-        let fingerprint_item_duration = fingerprinter.get_item_duration().unwrap();
-
-        fingerprinter
-            .get_fingerprint_raw()
-            .unwrap()
-            .get()
-            .iter()
-            .enumerate()
-            .for_each(|(i, f)| {
-                let d = fingerprint_delay + fingerprint_item_duration.mul_f32(i as f32);
-                hashes.push((*f, d))
-            });
-
         if let Some(seek_to) = seek_to {
             for (_, ts) in &mut hashes {
                 *ts += seek_to;
             }
         }
 
-        Ok((hashes, fingerprint_item_duration))
+        Ok(hashes)
     }
 
     pub(crate) fn run_single(
         &self,
         path: impl AsRef<Path>,
+        hash_period: f32,
+        hash_duration: f32,
         persist: bool,
     ) -> Result<FrameHashes> {
         let span = tracing::span!(tracing::Level::TRACE, "run");
@@ -329,9 +322,11 @@ impl<P: AsRef<Path>> Analyzer<P> {
 
         tracing::debug!("starting frame processing for {}", path.display());
 
-        let (opening_hashes, hash_duration) = Self::process_frames(
+        let opening_hashes = Self::process_frames(
             &mut ctx,
             stream_idx,
+            Duration::from_secs_f32(hash_duration),
+            Duration::from_secs_f32(hash_period),
             Some(opening_duration),
             None,
             threaded,
@@ -341,10 +336,12 @@ impl<P: AsRef<Path>> Analyzer<P> {
             ending_hashes.extend(Self::process_frames(
                 &mut ctx,
                 stream_idx,
+                Duration::from_secs_f32(hash_duration),
+                Duration::from_secs_f32(hash_period),
                 None,
                 Some(ending_seek_to),
                 threaded,
-            )?.0);
+            )?);
         }
 
         tracing::debug!(
@@ -370,6 +367,8 @@ impl<P: AsRef<Path> + Sync> Analyzer<P> {
     /// Runs this analyzer.
     pub fn run(
         &self,
+        hash_period: f32,
+        hash_duration: f32,
         persist: bool,
         threading: bool,
     ) -> Result<Vec<FrameHashes>> {
@@ -386,14 +385,14 @@ impl<P: AsRef<Path> + Sync> Analyzer<P> {
                     .videos
                     .par_iter()
                     .map(|path| {
-                        self.run_single(path, persist)
+                        self.run_single(path, hash_period, hash_duration, persist)
                             .unwrap()
                     })
                     .collect::<Vec<_>>();
             }
         } else {
             data.extend(self.videos.iter().map(|path| {
-                self.run_single(path, persist)
+                self.run_single(path, hash_period, hash_duration, persist)
                     .unwrap()
             }));
         }
@@ -420,7 +419,7 @@ mod test {
     fn test_analyzer() {
         let paths = get_sample_paths();
         let analyzer = Analyzer::from_files(paths.clone(), false, false);
-        let data = analyzer.run(false, false).unwrap();
+        let data = analyzer.run(0.3, 3.0, false, false).unwrap();
         insta::assert_debug_snapshot!(data);
     }
 }

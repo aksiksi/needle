@@ -14,12 +14,12 @@ pub enum FrameHashesVersion {
 struct FrameHashesV1 {
     opening: Vec<(u32, Duration)>,
     ending: Vec<(u32, Duration)>,
-    hash_duration: Duration,
+    hash_duration: f32,
     md5: String,
 }
 
 impl FrameHashesV1 {
-    fn new(opening: Vec<(u32, Duration)>, ending: Vec<(u32, Duration)>, hash_duration: Duration, md5: String) -> Self {
+    fn new(opening: Vec<(u32, Duration)>, ending: Vec<(u32, Duration)>, hash_duration: f32, md5: String) -> Self {
         Self {
             opening,
             ending,
@@ -36,7 +36,7 @@ impl FrameHashesV1 {
         return &self.ending;
     }
 
-    fn hash_duration(&self) -> Duration {
+    fn hash_duration(&self) -> f32 {
         return self.hash_duration;
     }
 
@@ -68,7 +68,7 @@ pub struct FrameHashes {
 }
 
 impl FrameHashes {
-    pub(crate) fn new_v1(opening: Vec<(u32, Duration)>, ending: Vec<(u32, Duration)>, hash_duration: Duration, md5: String) -> Self {
+    pub(crate) fn new_v1(opening: Vec<(u32, Duration)>, ending: Vec<(u32, Duration)>, hash_duration: f32, md5: String) -> Self {
         Self {
             version: FrameHashesVersion::V1,
             data: FrameHashesData::V1(FrameHashesV1::new(opening, ending, hash_duration, md5)),
@@ -117,6 +117,8 @@ impl FrameHashes {
             let analyzer = super::Analyzer::<&Path>::default().with_force(true);
             let frame_hashes = analyzer.run_single(
                 video,
+                super::DEFAULT_HASH_PERIOD,
+                super::DEFAULT_HASH_DURATION,
                 false,
             )?;
             tracing::debug!("completed in-place video analysis for {}", video.display());
@@ -139,7 +141,7 @@ impl FrameHashes {
     }
 
     /// Returns the hash duration from the underlying frame hashes.
-    pub fn hash_duration(&self) -> Duration {
+    pub fn hash_duration(&self) -> f32 {
         match &self.data {
             FrameHashesData::V1(f) => f.hash_duration(),
         }

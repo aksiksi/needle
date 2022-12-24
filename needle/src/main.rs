@@ -37,6 +37,22 @@ enum Commands {
 
         #[clap(
             long,
+            default_value_t = audio::DEFAULT_HASH_PERIOD,
+            value_parser = clap::value_parser!(f32),
+            help = "Period between hashes, in seconds. For example, if set to 0.3, a hash will be generated for every 300 ms of audio. Lowering this number can improve the accuracy of the result, at the cost of performance. The default aims to strike a balance between accuracy and performance."
+        )]
+        hash_period: f32,
+
+        #[clap(
+            long,
+            default_value_t = audio::DEFAULT_HASH_DURATION,
+            value_parser = clap::value_parser!(f32),
+            help = "Duration of audio to hash, in seconds.",
+        )]
+        hash_duration: f32,
+
+        #[clap(
+            long,
             default_value_t = audio::DEFAULT_OPENING_SEARCH_PERCENTAGE,
             value_parser = clap::value_parser!(f32),
             help = "Specifies which portion of the start of the video the opening should be in. For example, if set to 0.25, only matches found in the first 25% of the video will be considered."
@@ -194,10 +210,26 @@ impl Cli {
         match self.command {
             Commands::Info => (),
             Commands::Analyze {
+                hash_period,
+                hash_duration,
                 opening_search_percentage,
                 ending_search_percentage,
                 ..
             } => {
+                if hash_period <= 0.0 {
+                    cmd.error(
+                        ErrorKind::InvalidValue,
+                        "hash_period must be a positive number",
+                    )
+                    .exit();
+                }
+                if hash_duration < 3.0 {
+                    cmd.error(
+                        ErrorKind::InvalidValue,
+                        "hash_duration must be greater than 3 seconds",
+                    )
+                    .exit();
+                }
                 if opening_search_percentage >= 1.0 {
                     cmd.error(
                         ErrorKind::InvalidValue,
@@ -261,6 +293,8 @@ fn main() -> needle::Result<()> {
     match args.command {
         Commands::Analyze {
             ref mode,
+            hash_period,
+            hash_duration,
             opening_search_percentage,
             ending_search_percentage,
             include_endings,
@@ -276,7 +310,7 @@ fn main() -> needle::Result<()> {
                     .with_ending_search_percentage(ending_search_percentage)
                     .with_include_endings(include_endings);
 
-                analyzer.run(true, !args.no_threading)?;
+                analyzer.run(hash_period, hash_duration, true, !args.no_threading)?;
             }
             #[cfg(feature = "video")]
             Mode::Video => {
