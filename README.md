@@ -64,10 +64,10 @@ Let's try it out with the same files as above:
 ```
 $ needle analyze ~/Movies/land-of-lustrous-ep1.mkv ~/Movies/land-of-lustrous-ep2.mkv ~/Movies/land-of-lustrous-ep3.mkv
 
-$ ls -la ~/Movies/land-of-lustrous-*.needle.bin
--rw-r--r--  1 aksiksi  staff  76128 Jul  2 20:09 ~/Movies/land-of-lustrous-ep1.needle.bin
--rw-r--r--  1 aksiksi  staff  76128 Jul  2 20:09 ~/Movies/land-of-lustrous-ep2.needle.bin
--rw-r--r--  1 aksiksi  staff  76128 Jul  2 20:09 ~/Movies/land-of-lustrous-ep3.needle.bin
+$ ls -la ~/Movies/land-of-lustrous-*.needle.dat
+-rw-r--r--  1 aksiksi  staff  76128 Jul  2 20:09 ~/Movies/land-of-lustrous-ep1.needle.dat
+-rw-r--r--  1 aksiksi  staff  76128 Jul  2 20:09 ~/Movies/land-of-lustrous-ep2.needle.dat
+-rw-r--r--  1 aksiksi  staff  76128 Jul  2 20:09 ~/Movies/land-of-lustrous-ep3.needle.dat
 ```
 
 The frame hash files are quite small: on the order of 4 KB per minute of audio. Note that the size will change based on how you configure the analyzer.

@@ -50,5 +50,5 @@ pub const DEFAULT_HASH_DURATION: f32 = 3.0;
 /// The idea is to provide a buffer that reduces the amount of missed content.
 pub const DEFAULT_OPENING_AND_ENDING_TIME_PADDING: f32 = 0.0; // seconds
 
-static FRAME_HASH_DATA_FILE_EXT: &str = "needle.bin";
+static FRAME_HASH_DATA_FILE_EXT: &str = "needle.dat";
 static SKIP_FILE_EXT: &str = "needle.skip.json";
