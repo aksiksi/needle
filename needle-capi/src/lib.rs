@@ -94,7 +94,9 @@ impl Display for NeedleError {
                 write!(f, "One or more input arguments were invalid (usually zero)")
             }
             NeedleError::FrameHashDataNotFound => write!(f, "Frame hash data not found on disk"),
-            NeedleError::FrameHashDataInvalidVersion => write!(f, "Frame hash data has an invalid version"),
+            NeedleError::FrameHashDataInvalidVersion => {
+                write!(f, "Frame hash data has an invalid version")
+            }
             NeedleError::InvalidFrameHashData => {
                 write!(f, "Invalid frame hash data read from disk")
             }
@@ -155,8 +157,10 @@ pub extern "C" fn needle_error_to_str(error: NeedleError) -> *const libc::c_char
                 .as_ptr()
         },
         NeedleError::FrameHashDataInvalidVersion => unsafe {
-            CStr::from_bytes_with_nul_unchecked("Frame hash data has an invalid version.\0".as_bytes())
-                .as_ptr()
+            CStr::from_bytes_with_nul_unchecked(
+                "Frame hash data has an invalid version.\0".as_bytes(),
+            )
+            .as_ptr()
         },
         NeedleError::InvalidFrameHashData => unsafe {
             CStr::from_bytes_with_nul_unchecked(
@@ -478,10 +482,7 @@ pub extern "C" fn needle_audio_analyzer_run(
     // SAFETY: We assume that the user is passing in a _valid_ pointer. Otherwise, all bets are off.
     let analyzer = unsafe { analyzer.as_mut().unwrap() };
 
-    match analyzer
-        .inner
-        .run(hash_period, hash_duration, persist, threading)
-    {
+    match analyzer.inner.run(persist, threading) {
         Ok(frame_hashes) => {
             // Store the frame hashes for later use.
             analyzer.frame_hashes = frame_hashes.into_iter().map(|f| f.into()).collect();
@@ -685,8 +686,7 @@ mod test {
         let path_ptrs: Vec<*const libc::c_char> = paths.iter().map(|s| s.as_ptr()).collect();
         let num_paths = paths.len();
         let mut analyzer = std::ptr::null_mut();
-        let error =
-            needle_audio_analyzer_new_default(path_ptrs.as_ptr(), num_paths, &mut analyzer);
+        let error = needle_audio_analyzer_new_default(path_ptrs.as_ptr(), num_paths, &mut analyzer);
         assert_eq!(error, NeedleError::Ok);
         assert_ne!(analyzer, std::ptr::null_mut());
         needle_audio_analyzer_free(analyzer);

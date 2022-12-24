@@ -125,6 +125,9 @@ pub enum Error {
     /// Invalid frame hash data version.
     #[error("invalid frame hash data version")]
     FrameHashDataInvalidVersion,
+    /// Frame hash data does not contain ending.
+    #[error("no ending hash data present")]
+    FrameHashDataNoEnding,
     /// No paths were provided to the [crate::audio::Analyzer].
     #[error("no paths provided to analyzer")]
     AnalyzerMissingPaths,
@@ -143,6 +146,9 @@ pub enum Error {
     /// Wraps [std::io::Error].
     #[error("IO error: {0}")]
     IOError(#[from] std::io::Error),
+    /// Wraps [chromaprint_rust::Error].
+    #[error("Chromaprint error: {0}")]
+    ChromaprintError(#[from] chromaprint_rust::Error),
 }
 
 /// Common result type.

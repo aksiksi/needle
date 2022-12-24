@@ -259,11 +259,11 @@ impl<P: AsRef<Path>> Comparator<P> {
         &self,
         src_hashes: &FrameHashes,
         dst_hashes: &FrameHashes,
-    ) -> OpeningAndEndingInfo {
+    ) -> Result<OpeningAndEndingInfo> {
         let _g = tracing::span!(tracing::Level::TRACE, "find_opening_and_ending");
 
-        let src_hash_duration = Duration::from_secs_f32(src_hashes.hash_duration());
-        let dst_hash_duration = Duration::from_secs_f32(dst_hashes.hash_duration());
+        let src_hash_duration = src_hashes.hash_duration();
+        let dst_hash_duration = dst_hashes.hash_duration();
 
         let mut entries = Vec::new();
         entries.extend(self.longest_common_hash_match(
@@ -275,8 +275,7 @@ impl<P: AsRef<Path>> Comparator<P> {
         ));
         if self.include_endings {
             if src_hashes.ending_data().len() == 0 || dst_hashes.ending_data().len() == 0 {
-                // TODO(aksiksi): Return an error here.
-                todo!()
+                return Err(crate::Error::FrameHashDataNoEnding);
             }
             entries.extend(self.longest_common_hash_match(
                 src_hashes.ending_data(),
@@ -306,12 +305,12 @@ impl<P: AsRef<Path>> Comparator<P> {
             }
         }
 
-        OpeningAndEndingInfo {
+        Ok(OpeningAndEndingInfo {
             src_openings: src_valid_openings,
             dst_openings: dst_valid_openings,
             src_endings: src_valid_endings,
             dst_endings: dst_valid_endings,
-        }
+        })
     }
 
     fn check_skip_file(video: impl AsRef<Path>) -> Result<bool> {
@@ -399,7 +398,7 @@ impl<P: AsRef<Path>> Comparator<P> {
             (&frame_hash_map[src_idx], &frame_hash_map[dst_idx]);
 
         tracing::debug!("starting search for opening and ending");
-        let info = self.find_opening_and_ending(src_frame_hashes, dst_frame_hashes);
+        let info = self.find_opening_and_ending(src_frame_hashes, dst_frame_hashes)?;
         tracing::debug!("finished search for opening and ending");
 
         Ok(info)

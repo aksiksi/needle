@@ -156,12 +156,10 @@ impl<P: AsRef<Path>> Analyzer<P> {
     fn process_frames(
         ctx: &mut ffmpeg_next::format::context::Input,
         stream_idx: usize,
-        hash_duration: Duration,
-        hash_period: Duration,
         duration: Option<Duration>,
         seek_to: Option<Duration>,
         threaded: bool,
-    ) -> Result<Vec<(u32, Duration)>> {
+    ) -> Result<(Vec<(u32, Duration)>, Duration)> {
         let span = tracing::span!(tracing::Level::TRACE, "process_frames");
         let _enter = span.enter();
 
@@ -174,12 +172,10 @@ impl<P: AsRef<Path>> Analyzer<P> {
         let mut frame_resampled = ffmpeg_next::frame::Audio::empty();
 
         // Setup the audio fingerprinter
-        let n = f32::ceil(hash_duration.as_secs_f32() / hash_period.as_secs_f32()) as usize;
-        let mut fingerprinter =
-            chromaprint::DelayedFingerprinter::new(n, hash_duration, hash_period, None, 2, None);
+        let mut chromaprint_ctx = chromaprint::Context::default();
 
         // Setup the audio resampler
-        let target_sample_rate = fingerprinter.sample_rate();
+        let target_sample_rate = chromaprint_ctx.sample_rate();
         let mut resampler = decoder
             .decoder
             .resampler(
@@ -217,6 +213,8 @@ impl<P: AsRef<Path>> Analyzer<P> {
                     p.pts().unwrap() < end_timestamp.unwrap()
                 }
             });
+
+        chromaprint_ctx.start(target_sample_rate, 2)?;
 
         for p in audio_packets {
             if p.pts().unwrap() <= 0 {
@@ -273,10 +271,7 @@ impl<P: AsRef<Path>> Analyzer<P> {
 
                     // Feed the i16 samples to Chromaprint. Since we are using the default sampling rate,
                     // Chromaprint will _not_ do any resampling internally.
-                    for (raw_fingerprint, ts) in fingerprinter.feed(samples).unwrap() {
-                        let hash = chromaprint::simhash::simhash32(raw_fingerprint.get());
-                        hashes.push((hash, ts));
-                    }
+                    chromaprint_ctx.feed(samples)?;
 
                     if delay.is_none() {
                         break;
@@ -287,22 +282,35 @@ impl<P: AsRef<Path>> Analyzer<P> {
             }
         }
 
+        chromaprint_ctx.finish()?;
+
+        let chromaprint_hash_delay = chromaprint_ctx.get_delay()?;
+        let item_duration = chromaprint_ctx.get_item_duration()?;
+
+        for (i, hash) in chromaprint_ctx
+            .get_fingerprint_raw()?
+            .get()
+            .iter()
+            .enumerate()
+        {
+            // Compute a timestamp for the current hash.
+            // The timestamp for the hash is based on the overall hash delay and the
+            // item (hash) duration.
+            let ts = chromaprint_hash_delay + item_duration.mul_f32(i as f32);
+            hashes.push((*hash, ts));
+        }
+
+        // Adjust hash timestamp if seek_to is provided.
         if let Some(seek_to) = seek_to {
             for (_, ts) in &mut hashes {
                 *ts += seek_to;
             }
         }
 
-        Ok(hashes)
+        Ok((hashes, item_duration))
     }
 
-    pub(crate) fn run_single(
-        &self,
-        path: impl AsRef<Path>,
-        hash_period: f32,
-        hash_duration: f32,
-        persist: bool,
-    ) -> Result<FrameHashes> {
+    pub(crate) fn run_single(&self, path: impl AsRef<Path>, persist: bool) -> Result<FrameHashes> {
         let span = tracing::span!(tracing::Level::TRACE, "run");
         let _enter = span.enter();
 
@@ -352,27 +360,14 @@ impl<P: AsRef<Path>> Analyzer<P> {
 
         let opening_duration = stream_duration.mul_f32(self.opening_search_percentage);
 
-        let opening_hashes = Self::process_frames(
-            &mut ctx,
-            stream_idx,
-            Duration::from_secs_f32(hash_duration),
-            Duration::from_secs_f32(hash_period),
-            Some(opening_duration),
-            None,
-            threaded,
-        )?;
+        let (opening_hashes, hash_duration) =
+            Self::process_frames(&mut ctx, stream_idx, Some(opening_duration), None, threaded)?;
         let mut ending_hashes = Vec::new();
         if self.include_endings {
             let ending_seek_to = stream_duration.mul_f32(1.0 - self.ending_search_percentage);
-            ending_hashes.extend(Self::process_frames(
-                &mut ctx,
-                stream_idx,
-                Duration::from_secs_f32(hash_duration),
-                Duration::from_secs_f32(hash_period),
-                None,
-                Some(ending_seek_to),
-                threaded,
-            )?);
+            ending_hashes.extend(
+                Self::process_frames(&mut ctx, stream_idx, None, Some(ending_seek_to), threaded)?.0,
+            );
         }
 
         tracing::debug!(
@@ -396,13 +391,7 @@ impl<P: AsRef<Path>> Analyzer<P> {
 
 impl<P: AsRef<Path> + Sync> Analyzer<P> {
     /// Runs this analyzer.
-    pub fn run(
-        &self,
-        hash_period: f32,
-        hash_duration: f32,
-        persist: bool,
-        threading: bool,
-    ) -> Result<Vec<FrameHashes>> {
+    pub fn run(&self, persist: bool, threading: bool) -> Result<Vec<FrameHashes>> {
         if self.videos.len() == 0 {
             return Err(Error::AnalyzerMissingPaths.into());
         }
@@ -415,17 +404,15 @@ impl<P: AsRef<Path> + Sync> Analyzer<P> {
                 data = self
                     .videos
                     .par_iter()
-                    .map(|path| {
-                        self.run_single(path, hash_period, hash_duration, persist)
-                            .unwrap()
-                    })
+                    .map(|path| self.run_single(path, persist).unwrap())
                     .collect::<Vec<_>>();
             }
         } else {
-            data.extend(self.videos.iter().map(|path| {
-                self.run_single(path, hash_period, hash_duration, persist)
-                    .unwrap()
-            }));
+            data.extend(
+                self.videos
+                    .iter()
+                    .map(|path| self.run_single(path, persist).unwrap()),
+            );
         }
 
         Ok(data)
@@ -451,7 +438,7 @@ mod test {
     fn test_analyzer() {
         let paths = get_sample_paths();
         let analyzer = Analyzer::from_files(paths.clone(), false, false);
-        let data = analyzer.run(0.3, 3.0, false, false).unwrap();
+        let data = analyzer.run(false, false).unwrap();
         insta::assert_debug_snapshot!(data);
     }
 }

@@ -4,8 +4,8 @@ mod data;
 mod util;
 
 pub use analyzer::Analyzer;
-pub use data::FrameHashes;
 pub use comparator::{Comparator, SearchResult};
+pub use data::FrameHashes;
 
 /// Default hash match threshold.
 ///
