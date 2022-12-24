@@ -4,14 +4,10 @@ use std::time::Duration;
 use clap::{ArgAction, CommandFactory, ErrorKind, Parser, Subcommand};
 
 use needle::audio;
-#[cfg(feature = "video")]
-use needle::video;
 
 #[derive(clap::ValueEnum, Clone, Debug)]
 enum Mode {
     Audio,
-    #[cfg(feature = "video")]
-    Video,
 }
 
 #[derive(Debug, Subcommand)]
@@ -248,7 +244,7 @@ impl Cli {
         match needle::util::find_video_files(
             paths,
             !self.file_headers_only,
-            !cfg!(feature = "video"),
+            true,
         ) {
             Err(e) => {
                 let mut cmd = Cli::command();
@@ -294,12 +290,6 @@ fn main() -> needle::Result<()> {
                     .with_include_endings(include_endings);
                 let hash_duration = Duration::from_secs_f32(hash_duration);
                 analyzer.run(hash_duration, true, !args.no_threading)?;
-            }
-            #[cfg(feature = "video")]
-            Mode::Video => {
-                let mut video_comparator =
-                    video::VideoComparator::new(&args.files[0], &args.files[1]).unwrap();
-                video_comparator.compare(1000).unwrap();
             }
         },
         Commands::Search {

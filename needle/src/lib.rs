@@ -112,9 +112,6 @@ use std::path::PathBuf;
 pub mod audio;
 /// Common utility functions.
 pub mod util;
-#[cfg(feature = "video")]
-/// Detects opening and endings across videos using just video streams.
-pub mod video;
 
 /// Common error type.
 #[derive(thiserror::Error, Debug)]
