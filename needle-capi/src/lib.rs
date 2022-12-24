@@ -32,7 +32,7 @@
 //!     }
 //!
 //!     // Run the analyzer.
-//!     err = needle_audio_analyzer_run(analyzer, 0.3, 3.0, true);
+//!     err = needle_audio_analyzer_run(analyzer, 0.3, false, true);
 //!     if (err != 0) {
 //!         printf("Failed to run analyzer: %s\n", needle_error_to_str(err));
 //!         goto done;
@@ -336,7 +336,7 @@ impl From<audio::FrameHashes> for FrameHashes {
 ///     return;
 /// }
 ///
-/// err = needle_audio_analyzer_run(analyzer, 0.3, 3.0, true);
+/// err = needle_audio_analyzer_run(analyzer, 0.3, false, true);
 /// if (err != 0) {
 ///     printf("Failed to run analyzer: %s\n", needle_error_to_str(err));
 /// }
@@ -464,7 +464,6 @@ pub extern "C" fn needle_audio_analyzer_print_paths(analyzer: *const NeedleAudio
 #[no_mangle]
 pub extern "C" fn needle_audio_analyzer_run(
     analyzer: *mut NeedleAudioAnalyzer,
-    hash_period: f32,
     hash_duration: f32,
     persist: bool,
     threading: bool,
@@ -472,17 +471,16 @@ pub extern "C" fn needle_audio_analyzer_run(
     if analyzer.is_null() {
         return NeedleError::NullArgument;
     }
-    if hash_period <= 0.0 {
-        return NeedleError::AnalyzerInvalidHashPeriod;
-    }
-    if hash_duration < 3.0 {
+    if hash_duration <= 0.0 {
         return NeedleError::AnalyzerInvalidHashDuration;
     }
+
+    let hash_duration = Duration::from_secs_f32(hash_duration);
 
     // SAFETY: We assume that the user is passing in a _valid_ pointer. Otherwise, all bets are off.
     let analyzer = unsafe { analyzer.as_mut().unwrap() };
 
-    match analyzer.inner.run(persist, threading) {
+    match analyzer.inner.run(hash_duration, persist, threading) {
         Ok(frame_hashes) => {
             // Store the frame hashes for later use.
             analyzer.frame_hashes = frame_hashes.into_iter().map(|f| f.into()).collect();

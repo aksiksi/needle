@@ -53,6 +53,14 @@ enum Commands {
 
         #[clap(
             long,
+            default_value_t = audio::DEFAULT_HASH_DURATION,
+            value_parser = clap::value_parser!(f32),
+            help = "Amount of time (in seconds) that each hash represents. The default should be sufficient for the vast majority of cases."
+        )]
+        hash_duration: f32,
+
+        #[clap(
+            long,
             default_value = "false",
             action(ArgAction::SetTrue),
             help = "If set, needle will also consider endings during the analysis."
@@ -196,6 +204,7 @@ impl Cli {
             Commands::Analyze {
                 opening_search_percentage,
                 ending_search_percentage,
+                hash_duration,
                 ..
             } => {
                 if opening_search_percentage >= 1.0 {
@@ -209,6 +218,13 @@ impl Cli {
                     cmd.error(
                         ErrorKind::InvalidValue,
                         "ending_search_percentage must be less than 1.0",
+                    )
+                    .exit();
+                }
+                if hash_duration <= 0.0 {
+                    cmd.error(
+                        ErrorKind::InvalidValue,
+                        "hash_duration must be greater than 0",
                     )
                     .exit();
                 }
@@ -263,6 +279,7 @@ fn main() -> needle::Result<()> {
             ref mode,
             opening_search_percentage,
             ending_search_percentage,
+            hash_duration,
             include_endings,
             threaded_decoding,
             force,
@@ -275,8 +292,8 @@ fn main() -> needle::Result<()> {
                     .with_opening_search_percentage(opening_search_percentage)
                     .with_ending_search_percentage(ending_search_percentage)
                     .with_include_endings(include_endings);
-
-                analyzer.run(true, !args.no_threading)?;
+                let hash_duration = Duration::from_secs_f32(hash_duration);
+                analyzer.run(hash_duration, true, !args.no_threading)?;
             }
             #[cfg(feature = "video")]
             Mode::Video => {

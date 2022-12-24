@@ -89,7 +89,7 @@ typedef struct FrameHashes FrameHashes;
  *     return;
  * }
  *
- * err = needle_audio_analyzer_run(analyzer, 0.3, 3.0, true);
+ * err = needle_audio_analyzer_run(analyzer, 0.3, false, true);
  * if (err != 0) {
  *     printf("Failed to run analyzer: %s\n", needle_error_to_str(err));
  * }
@@ -207,7 +207,6 @@ void needle_audio_analyzer_print_paths(const struct NeedleAudioAnalyzer *analyze
  * Run the [NeedleAudioAnalyzer].
  */
 enum NeedleError needle_audio_analyzer_run(struct NeedleAudioAnalyzer *analyzer,
-                                           float hash_period,
                                            float hash_duration,
                                            bool persist,
                                            bool threading);

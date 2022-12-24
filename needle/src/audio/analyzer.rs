@@ -158,6 +158,7 @@ impl<P: AsRef<Path>> Analyzer<P> {
         stream_idx: usize,
         duration: Option<Duration>,
         seek_to: Option<Duration>,
+        hash_duration: Option<Duration>,
         threaded: bool,
     ) -> Result<(Vec<(u32, Duration)>, Duration)> {
         let span = tracing::span!(tracing::Level::TRACE, "process_frames");
@@ -287,14 +288,23 @@ impl<P: AsRef<Path>> Analyzer<P> {
         let chromaprint_hash_delay = chromaprint_ctx.get_delay()?;
         let item_duration = chromaprint_ctx.get_item_duration()?;
 
+        // We can use the given hash duration and Chromaprint's item duration to
+        // figure out how many hashes we can skip.
+        let step_by = if let Some(hash_duration) = hash_duration {
+            hash_duration.as_millis() as usize / item_duration.as_millis() as usize
+        } else {
+            1
+        };
+
         for (i, hash) in chromaprint_ctx
             .get_fingerprint_raw()?
             .get()
             .iter()
             .enumerate()
+            .step_by(step_by)
         {
             // Compute a timestamp for the current hash.
-            // The timestamp for the hash is based on the overall hash delay and the
+            // The timestamp is based on the overall hash delay and the
             // item (hash) duration.
             let ts = chromaprint_hash_delay + item_duration.mul_f32(i as f32);
             hashes.push((*hash, ts));
@@ -307,15 +317,23 @@ impl<P: AsRef<Path>> Analyzer<P> {
             }
         }
 
-        Ok((hashes, item_duration))
+        // Return the provided hash duration or the default item duration.
+        let hash_duration = hash_duration.unwrap_or(item_duration);
+
+        Ok((hashes, hash_duration))
     }
 
-    pub(crate) fn run_single(&self, path: impl AsRef<Path>, persist: bool) -> Result<FrameHashes> {
+    pub(crate) fn run_single(
+        &self,
+        path: impl AsRef<Path>,
+        hash_duration: Duration,
+        persist: bool,
+    ) -> Result<FrameHashes> {
         let span = tracing::span!(tracing::Level::TRACE, "run");
         let _enter = span.enter();
 
         let path = path.as_ref();
-        let frame_hash_path = path.with_extension(super::FRAME_HASH_DATA_FILE_EXT);
+        let frame_hash_path = path.with_extension(crate::FRAME_HASH_DATA_FILE_EXT);
 
         // Check if we've already analyzed this video by comparing MD5 hashes.
         let md5 = crate::util::compute_header_md5sum(path)?;
@@ -341,17 +359,16 @@ impl<P: AsRef<Path>> Analyzer<P> {
         //
         // As an example, Matroska does not store the duration in the stream; it
         // only stores it in the format context.
-        let duration_raw = if stream.duration() >= 0 {
+        let duration_raw = if stream.duration() > 0 {
             stream.duration()
-        } else {
-            if ctx.duration() <= 0 {
-                // Just in case.
-                panic!("no duration found in stream or format context")
-            }
+        } else if ctx.duration() > 0 {
             // NOTE: The format-level duration is in milliseconds in time base units.
             // In other words, after multiplying by the time base, the result will be
             // in ms.
             ctx.duration() / 1000
+        } else {
+            // Just in case.
+            panic!("no duration found in stream or format context")
         };
 
         let stream_duration = super::util::to_timestamp(time_base, duration_raw);
@@ -360,13 +377,27 @@ impl<P: AsRef<Path>> Analyzer<P> {
 
         let opening_duration = stream_duration.mul_f32(self.opening_search_percentage);
 
-        let (opening_hashes, hash_duration) =
-            Self::process_frames(&mut ctx, stream_idx, Some(opening_duration), None, threaded)?;
+        let (opening_hashes, hash_duration) = Self::process_frames(
+            &mut ctx,
+            stream_idx,
+            Some(opening_duration),
+            None,
+            Some(hash_duration),
+            threaded,
+        )?;
         let mut ending_hashes = Vec::new();
         if self.include_endings {
             let ending_seek_to = stream_duration.mul_f32(1.0 - self.ending_search_percentage);
             ending_hashes.extend(
-                Self::process_frames(&mut ctx, stream_idx, None, Some(ending_seek_to), threaded)?.0,
+                Self::process_frames(
+                    &mut ctx,
+                    stream_idx,
+                    None,
+                    Some(ending_seek_to),
+                    Some(hash_duration),
+                    threaded,
+                )?
+                .0,
             );
         }
 
@@ -391,7 +422,12 @@ impl<P: AsRef<Path>> Analyzer<P> {
 
 impl<P: AsRef<Path> + Sync> Analyzer<P> {
     /// Runs this analyzer.
-    pub fn run(&self, persist: bool, threading: bool) -> Result<Vec<FrameHashes>> {
+    pub fn run(
+        &self,
+        hash_duration: Duration,
+        persist: bool,
+        threading: bool,
+    ) -> Result<Vec<FrameHashes>> {
         if self.videos.len() == 0 {
             return Err(Error::AnalyzerMissingPaths.into());
         }
@@ -404,14 +440,14 @@ impl<P: AsRef<Path> + Sync> Analyzer<P> {
                 data = self
                     .videos
                     .par_iter()
-                    .map(|path| self.run_single(path, persist).unwrap())
+                    .map(|path| self.run_single(path, hash_duration, persist).unwrap())
                     .collect::<Vec<_>>();
             }
         } else {
             data.extend(
                 self.videos
                     .iter()
-                    .map(|path| self.run_single(path, persist).unwrap()),
+                    .map(|path| self.run_single(path, hash_duration, persist).unwrap()),
             );
         }
 
@@ -438,7 +474,8 @@ mod test {
     fn test_analyzer() {
         let paths = get_sample_paths();
         let analyzer = Analyzer::from_files(paths.clone(), false, false);
-        let data = analyzer.run(false, false).unwrap();
+        let hash_duration = Duration::from_secs_f32(crate::audio::DEFAULT_HASH_DURATION);
+        let data = analyzer.run(hash_duration, false, false).unwrap();
         insta::assert_debug_snapshot!(data);
     }
 }

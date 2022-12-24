@@ -317,7 +317,7 @@ impl<P: AsRef<Path>> Comparator<P> {
         let skip_file = video
             .as_ref()
             .to_owned()
-            .with_extension(super::SKIP_FILE_EXT);
+            .with_extension(crate::SKIP_FILE_EXT);
         if !skip_file.exists() {
             return Ok(false);
         }
@@ -347,7 +347,7 @@ impl<P: AsRef<Path>> Comparator<P> {
         let skip_file = video
             .as_ref()
             .to_owned()
-            .with_extension(super::SKIP_FILE_EXT);
+            .with_extension(crate::SKIP_FILE_EXT);
         let mut skip_file = std::fs::File::create(skip_file)?;
         let data = SkipFile {
             opening,

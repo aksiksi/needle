@@ -20,14 +20,24 @@ pub fn format_time(t: Duration) -> String {
 /// If `audio` is set to true, this function will ensure that the video contains *at least* one audio stream.
 /// This flag is only used when `full` is set to **true**.
 pub fn is_valid_video_file(path: impl AsRef<Path>, full: bool, audio: bool) -> bool {
+    let path = path.as_ref();
+
+    if path
+        .to_str()
+        .unwrap()
+        .ends_with(crate::FRAME_HASH_DATA_FILE_EXT)
+    {
+        return false;
+    }
+
     if !full {
         let mut buf = [0u8; 8192];
-        let mut f = std::fs::File::open(path.as_ref()).unwrap();
+        let mut f = std::fs::File::open(path).unwrap();
         f.read(&mut buf).unwrap();
         return infer::is_video(&buf);
     }
 
-    if let Ok(input) = ffmpeg_next::format::input(&path.as_ref()) {
+    if let Ok(input) = ffmpeg_next::format::input(&path) {
         let num_video_streams = input
             .streams()
             .filter(|s| s.parameters().medium() == ffmpeg_next::util::media::Type::Video)

@@ -117,7 +117,7 @@ impl FrameHashes {
         if !analyze {
             let path = video
                 .to_owned()
-                .with_extension(super::FRAME_HASH_DATA_FILE_EXT);
+                .with_extension(crate::FRAME_HASH_DATA_FILE_EXT);
             Self::from_path(&path)
         } else {
             tracing::debug!(
@@ -125,7 +125,8 @@ impl FrameHashes {
                 video.display()
             );
             let analyzer = super::Analyzer::<&Path>::default().with_force(true);
-            let frame_hashes = analyzer.run_single(video, false)?;
+            let hash_duration = Duration::from_secs_f32(super::DEFAULT_HASH_DURATION);
+            let frame_hashes = analyzer.run_single(video, hash_duration, false)?;
             tracing::debug!("completed in-place video analysis for {}", video.display());
             Ok(frame_hashes)
         }
