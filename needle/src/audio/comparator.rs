@@ -14,14 +14,8 @@ use rayon::prelude::*;
 use crate::util;
 use crate::Result;
 
+use super::data::SkipFile;
 use super::{Analyzer, FrameHashes};
-
-#[derive(serde::Deserialize, serde::Serialize)]
-struct SkipFile {
-    pub opening: Option<(f32, f32)>,
-    pub ending: Option<(f32, f32)>,
-    pub md5: String,
-}
 
 type ComparatorHeap = BinaryHeap<ComparatorHeapEntry>;
 
@@ -317,7 +311,7 @@ impl<P: AsRef<Path>> Comparator<P> {
         let skip_file = video
             .as_ref()
             .to_owned()
-            .with_extension(crate::SKIP_FILE_EXT);
+            .with_extension(crate::SKIP_FILE_NAME);
         if !skip_file.exists() {
             return Ok(false);
         }
@@ -347,7 +341,7 @@ impl<P: AsRef<Path>> Comparator<P> {
         let skip_file = video
             .as_ref()
             .to_owned()
-            .with_extension(crate::SKIP_FILE_EXT);
+            .with_extension(crate::SKIP_FILE_NAME);
         let mut skip_file = std::fs::File::create(skip_file)?;
         let data = SkipFile {
             opening,

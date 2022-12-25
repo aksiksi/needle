@@ -151,5 +151,5 @@ pub enum Error {
 /// Common result type.
 pub type Result<T> = std::result::Result<T, Error>;
 
-pub(crate) static FRAME_HASH_DATA_FILE_EXT: &str = "needle.dat";
-pub(crate) static SKIP_FILE_EXT: &str = "needle.skip.json";
+pub(crate) static FRAME_HASH_DATA_FILE_NAME: &str = "needle.dat";
+pub(crate) static SKIP_FILE_NAME: &str = "needle.skip.json";

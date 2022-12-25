@@ -25,7 +25,7 @@ pub fn is_valid_video_file(path: impl AsRef<Path>, full: bool, audio: bool) -> b
     if path
         .to_str()
         .unwrap()
-        .ends_with(crate::FRAME_HASH_DATA_FILE_EXT)
+        .ends_with(crate::FRAME_HASH_DATA_FILE_NAME)
     {
         return false;
     }

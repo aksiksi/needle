@@ -333,7 +333,7 @@ impl<P: AsRef<Path>> Analyzer<P> {
         let _enter = span.enter();
 
         let path = path.as_ref();
-        let frame_hash_path = path.with_extension(crate::FRAME_HASH_DATA_FILE_EXT);
+        let frame_hash_path = path.with_extension(crate::FRAME_HASH_DATA_FILE_NAME);
 
         // Check if we've already analyzed this video by comparing MD5 hashes.
         let md5 = crate::util::compute_header_md5sum(path)?;

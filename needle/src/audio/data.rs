@@ -5,6 +5,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Error, Result};
 
+#[derive(serde::Deserialize, serde::Serialize)]
+pub(crate) struct SkipFile {
+    pub opening: Option<(f32, f32)>,
+    pub ending: Option<(f32, f32)>,
+    pub md5: String,
+}
+
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub enum FrameHashesVersion {
     V1 = 12345,
@@ -117,7 +124,7 @@ impl FrameHashes {
         if !analyze {
             let path = video
                 .to_owned()
-                .with_extension(crate::FRAME_HASH_DATA_FILE_EXT);
+                .with_extension(crate::FRAME_HASH_DATA_FILE_NAME);
             Self::from_path(&path)
         } else {
             tracing::debug!(

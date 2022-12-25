@@ -241,11 +241,7 @@ impl Cli {
     }
 
     fn find_video_files(&self, paths: &[PathBuf]) -> Vec<PathBuf> {
-        match needle::util::find_video_files(
-            paths,
-            !self.file_headers_only,
-            true,
-        ) {
+        match needle::util::find_video_files(paths, !self.file_headers_only, true) {
             Err(e) => {
                 let mut cmd = Cli::command();
                 cmd.error(ErrorKind::InvalidValue, e.to_string()).exit();
