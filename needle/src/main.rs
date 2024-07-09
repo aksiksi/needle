@@ -328,6 +328,7 @@ fn main() -> needle::Result<()> {
                 use_skip_files,
                 write_skip_files,
                 !args.no_threading,
+                false,
             )?;
         }
         Commands::Info => {

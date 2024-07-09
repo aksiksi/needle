@@ -630,6 +630,8 @@ pub extern "C" fn needle_audio_comparator_run(
         use_skip_files,
         write_skip_files,
         threading,
+        // TODO(aksiksi): Make this an argument.
+        false,
     ) {
         Ok(_) => NeedleError::Ok,
         Err(e) => e.into(),

@@ -1,12 +1,16 @@
-use std::path::Path;
+use std::{path::Path, collections::HashMap};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
 use crate::{Error, Result};
 
+
 #[derive(serde::Deserialize, serde::Serialize)]
-pub(crate) struct SkipFile {
+pub(crate) struct SkipDataGroup(pub(crate) HashMap<String, SkipData>);
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub(crate) struct SkipData {
     pub opening: Option<(f32, f32)>,
     pub ending: Option<(f32, f32)>,
     pub md5: String,

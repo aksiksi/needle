@@ -14,7 +14,7 @@ use rayon::prelude::*;
 use crate::util;
 use crate::Result;
 
-use super::data::SkipFile;
+use super::data::{SkipData, SkipDataGroup};
 use super::{Analyzer, FrameHashes};
 
 type ComparatorHeap = BinaryHeap<ComparatorHeapEntry>;
@@ -144,6 +144,19 @@ impl<P: AsRef<Path>> Comparator<P> {
     pub fn with_time_padding(mut self, time_padding: Duration) -> Self {
         self.time_padding = time_padding;
         self
+    }
+
+    /// Returns the directory shared by all video files in this comparator.
+    /// This method will return `None` if the videos do not belong to a single directory.
+    fn get_current_directory(&self) -> Option<&Path> {
+        let directory = self.videos()[0].as_ref().parent().unwrap();
+        for video in self.videos() {
+            let d = video.as_ref().parent().unwrap();
+            if d != directory {
+                return None;
+            }
+        }
+        Some(directory)
     }
 
     #[inline]
@@ -321,7 +334,7 @@ impl<P: AsRef<Path>> Comparator<P> {
 
         // Read existing skip file and compare MD5 hashes.
         let f = std::fs::File::open(&skip_file)?;
-        let skip_file: SkipFile = serde_json::from_reader(&f).unwrap();
+        let skip_file: SkipData = serde_json::from_reader(&f).unwrap();
 
         Ok(skip_file.md5 == md5)
     }
@@ -343,7 +356,7 @@ impl<P: AsRef<Path>> Comparator<P> {
             .to_owned()
             .with_extension(crate::SKIP_FILE_NAME);
         let mut skip_file = std::fs::File::create(skip_file)?;
-        let data = SkipFile {
+        let data = SkipData {
             opening,
             ending,
             md5,
@@ -523,6 +536,7 @@ impl<P: AsRef<Path> + Sync> Comparator<P> {
     /// _same_ list of video paths.
     pub fn run_with_frame_hashes(
         &self,
+        videos: Vec<&Path>,
         frame_hashes: Vec<FrameHashes>,
         display: bool,
         use_skip_files: bool,
@@ -532,10 +546,10 @@ impl<P: AsRef<Path> + Sync> Comparator<P> {
         // Build a list of video pairs for actual search. Pairs should only appear once.
         // Given N videos, this will result in: (N * (N-1)) / 2 pairs
         let mut pairs = Vec::new();
-        let mut processed_videos = vec![false; self.videos.len()];
+        let mut processed_videos = vec![false; videos.len()];
 
-        for i in 0..self.videos.len() {
-            for j in 0..self.videos.len() {
+        for i in 0..videos.len() {
+            for j in 0..videos.len() {
                 if i == j || processed_videos[j] {
                     continue;
                 }
@@ -580,8 +594,7 @@ impl<P: AsRef<Path> + Sync> Comparator<P> {
         // This map tracks the generated info struct for each video path. A bool is included
         // to allow determining whether the path is a source (true) or dest (false) in the info
         // struct.
-        let mut info_map: Vec<Vec<(&OpeningAndEndingInfo, bool)>> =
-            vec![Vec::new(); self.videos.len()];
+        let mut info_map: Vec<Vec<(&OpeningAndEndingInfo, bool)>> = vec![Vec::new(); videos.len()];
         for (src_idx, dst_idx, info) in &data {
             info_map[*src_idx].push((info, true));
             info_map[*dst_idx].push((info, false));
@@ -591,7 +604,7 @@ impl<P: AsRef<Path> + Sync> Comparator<P> {
         // of other videos. If required, display the result and write a skip file to disk.
         let mut results = Vec::new();
         for (idx, matches) in info_map.into_iter().enumerate() {
-            let path = self.videos[idx].as_ref().to_owned();
+            let path = videos[idx].to_owned();
             if display {
                 println!("\n{}\n", path.display());
             }
@@ -641,7 +654,43 @@ impl<P: AsRef<Path> + Sync> Comparator<P> {
         use_skip_files: bool,
         write_skip_files: bool,
         threading: bool,
+        _incremental: bool,
     ) -> Result<Vec<SearchResult>> {
+        let current_directory = if let Some(d) = self.get_current_directory() {
+            d
+        } else {
+            // TODO(aksiksi): Make this an error.
+            panic!("videos must belong to the same directory");
+        };
+
+        let mut videos = Vec::new();
+
+        // Load the skip data.
+        let json_path = current_directory.join(crate::SKIP_FILE_NAME);
+        if json_path.exists() {
+            let f = std::fs::File::open(json_path)?;
+            let skip_data_group: SkipDataGroup = serde_json::from_reader(&f)?;
+
+            // Figure out which videos are not in the data.
+            for video in self.videos() {
+                let video_name = video.as_ref().file_name().unwrap().to_str().unwrap();
+                if skip_data_group.0.contains_key(video_name) {
+                    videos.push(video.as_ref());
+                }
+            }
+        } else {
+            for video in self.videos() {
+                videos.push(video.as_ref());
+            }
+        }
+
+        // Load the list of files that have already been analyzed from the needle.json in this directory.
+        // If no such file is present, this is considered a "full" run - i.e., every single episode needs
+        // to be involved in the search.
+        //
+        // If it is present, the search will be run for files that are _not_ present against the opening/ending
+        // data in needle.dat.
+
         // Stores frame hash data for each video to be analyzed.
         // We load them all now to be able to handle in-place analysis when the `analyze`
         // flag is passed in to this method.
@@ -654,6 +703,7 @@ impl<P: AsRef<Path> + Sync> Comparator<P> {
         }
 
         self.run_with_frame_hashes(
+            videos,
             frame_hashes,
             display,
             use_skip_files,
