@@ -28,10 +28,22 @@
             pkgs.ffmpeg-full
             pkgs.llvmPackages.clang
             pkgs.pkg-config
-          ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.fftw ];
+          ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+            pkgs.fftw
+          ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+            pkgs.darwin.apple_sdk.frameworks.Accelerate
+            pkgs.darwin.apple_sdk.frameworks.AVFoundation
+          ];
           # buildInputs: used only at runtime (i.e., linked against)
           # https://nixos.org/manual/nixpkgs/stable/#ssec-stdenv-dependencies-overview
-          buildInputs = [ pkgs.ffmpeg-full ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.fftw ];
+          buildInputs = [
+            pkgs.ffmpeg-full
+          ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+            pkgs.fftw
+          ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+            pkgs.darwin.apple_sdk.frameworks.Accelerate
+            pkgs.darwin.apple_sdk.frameworks.AVFoundation
+          ];
           # Required to allow build to "see" libclang (used by bindgen I think)
           LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
           meta = {
@@ -51,18 +63,27 @@
         pkgs = nixpkgs.legacyPackages.${system};
       in {
         default = pkgs.mkShell {
+          buildInputs = [
+            pkgs.chromaprint
+            pkgs.ffmpeg-full
+            pkgs.libiconv    # required by rust-ffmpeg build script
+            pkgs.pkg-config
+          ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+            pkgs.fftw
+          ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+            pkgs.darwin.apple_sdk.frameworks.Accelerate
+            pkgs.darwin.apple_sdk.frameworks.AVFoundation
+          ];
+          LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
           packages = [
             pkgs.cargo
-            pkgs.chromaprint
             pkgs.cmake
-            pkgs.ffmpeg-full
             pkgs.llvmPackages.clang
             pkgs.pkg-config
             pkgs.rustc
             pkgs.rust-analyzer
             pkgs.rustfmt
-          ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.fftw ];
-          LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
+          ];
         };
       }
     );
