@@ -23,20 +23,14 @@
           cargoSha256 = "sha256-aUKzSbyniuk2+UZmrUZjMv+yhcjn+eilnZtCMxzJLZo=";
           # nativeBuildInputs: used only in build phase
           nativeBuildInputs = [
-            pkgs.chromaprint
             pkgs.cmake
-            pkgs.ffmpeg-full
             pkgs.llvmPackages.clang
             pkgs.pkg-config
-          ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
-            pkgs.fftw
-          ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
-            pkgs.darwin.apple_sdk.frameworks.Accelerate
-            pkgs.darwin.apple_sdk.frameworks.AVFoundation
           ];
           # buildInputs: used only at runtime (i.e., linked against)
           # https://nixos.org/manual/nixpkgs/stable/#ssec-stdenv-dependencies-overview
           buildInputs = [
+            pkgs.chromaprint
             pkgs.ffmpeg-full
           ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
             pkgs.fftw
@@ -44,7 +38,7 @@
             pkgs.darwin.apple_sdk.frameworks.Accelerate
             pkgs.darwin.apple_sdk.frameworks.AVFoundation
           ];
-          # Required to allow build to "see" libclang (used by bindgen I think)
+          # Required to allow build to "see" libclang (used by bindgen I think).
           LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
           meta = {
             description = "A CLI tool that finds a needle (opening/intro and ending/credits) in a haystack (TV or anime episode).";
