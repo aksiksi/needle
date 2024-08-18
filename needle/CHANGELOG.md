@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.1.6](https://github.com/aksiksi/needle/compare/v0.1.5...v0.1.6) (2024-08-18)
+
+
+### Features
+
+* **analyzer:** Add back hash duration option ([fd51580](https://github.com/aksiksi/needle/commit/fd515805886ccb2234d21acf2a968bd511fd82f3))
+* **analyzer:** Generate hashes in chromaprint and eliminate hash duration and period flags ([b4cb689](https://github.com/aksiksi/needle/commit/b4cb6893d95934fdf7059414c2b5e34ade69327d))
+* **analyzer:** Improve duration calculation logic + handle invalid PTS ([bff5c29](https://github.com/aksiksi/needle/commit/bff5c29e7e81ad92fcb80d5dd35a7e24a2ae319f))
+* **analyzer:** Store hashes only and compute timestamp on demand ([3a1eeeb](https://github.com/aksiksi/needle/commit/3a1eeeb2974b7c549f9c5d95af1089db3625f5b4))
+* **analyzer:** Use Chromaprint raw hash instead of DelayedFingerprinter ([fbbb36f](https://github.com/aksiksi/needle/commit/fbbb36f68fd5b11b3c7763745144d14549f9fde6))
+* **analyzer:** Use MD5 instead of size for FrameHashes ([e6c393a](https://github.com/aksiksi/needle/commit/e6c393aa5302cf558f8ab59f99f143e7b55e20af))
+* **audio:** Refactor FrameHashes format to allow for version changes ([e7c0a6a](https://github.com/aksiksi/needle/commit/e7c0a6a2b1371ef855e14f34c06efee205076ada))
+* **comparator:** Add support for analysis and search for openings and endings separately ([c2d45c3](https://github.com/aksiksi/needle/commit/c2d45c3837560bdfbd3c86d5513ad2eb9187e46e))
+* **comparator:** Return a vector of SearchResult ([9d6bd55](https://github.com/aksiksi/needle/commit/9d6bd5567ebceea45fe779c18ba2fdf9b47325ee))
+* **data:** Store opening and ending data separately in frame hashes ([f8d3b15](https://github.com/aksiksi/needle/commit/f8d3b15dc52e8d6bc0133841cc7eeabaf06e4e52))
+* Do not sort videos internally ([22f8bb5](https://github.com/aksiksi/needle/commit/22f8bb57d0cf0c8b547432566821fcec19c4ca43))
+
+
+### Bug Fixes
+
+* **comparator:** Search for openings only by default ([59f2700](https://github.com/aksiksi/needle/commit/59f2700bb1ffc0df5e07e6d9c7aa9520593309ef))
+
+
+### Miscellaneous
+
+* add Nix Flake ([749460f](https://github.com/aksiksi/needle/commit/749460f5d69568a37c0a810404d62bc9a38d0768))
+* Cleaned up README, .gitignore, and improved Dockerfile ([69383b3](https://github.com/aksiksi/needle/commit/69383b331ca75f652e3c7bfb2b4466ed8c79680e))
+* **comparator:** Disable useless (failing) test ([f43abf0](https://github.com/aksiksi/needle/commit/f43abf0b4e26e1d966a2edd67aec559d7dce0f80))
+* Move FrameHashes to separate module ([f0784f8](https://github.com/aksiksi/needle/commit/f0784f8c05c64f1769e65335d6e992c0ba190457))
+* Remove the video feature and code ([3fe60c5](https://github.com/aksiksi/needle/commit/3fe60c59c285b77fd0eb0efd2ae989149d273bf1))
+* update Dockerfile and vcpkg to use latest ([b218819](https://github.com/aksiksi/needle/commit/b21881916be83338ec093ca1133e661c837b7e47))
+* Upgrade to FFmpeg 5.1 ([e3d492c](https://github.com/aksiksi/needle/commit/e3d492cc337199973a1aa75ada1c3a9f2d5a51d9))
+* Use .dat extension for frame hash data ([2a94284](https://github.com/aksiksi/needle/commit/2a94284f0c197814f099df7f4e901b6e5fa691e6))
+
 ## [0.1.5](https://github.com/aksiksi/needle/compare/v0.1.4...v0.1.5) (2022-07-31)
 
 
