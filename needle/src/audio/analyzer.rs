@@ -1,15 +1,15 @@
-extern crate chromaprint_rust;
 extern crate ffmpeg_next;
 #[cfg(feature = "rayon")]
 extern crate rayon;
-
-use chromaprint_rust as chromaprint;
+extern crate rusty_chromaprint;
 
 use std::path::Path;
 use std::time::Duration;
 
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
+
+use rusty_chromaprint::{Configuration, Fingerprinter};
 
 use super::FrameHashes;
 use crate::{Error, Result};
@@ -173,10 +173,11 @@ impl<P: AsRef<Path>> Analyzer<P> {
         let mut frame_resampled = ffmpeg_next::frame::Audio::empty();
 
         // Setup the audio fingerprinter
-        let mut chromaprint_ctx = chromaprint::Context::default();
+        let config = &Configuration::preset_test2();
+        let target_sample_rate = config.sample_rate();
+        let mut chromaprint_ctx = Fingerprinter::new(config);
 
         // Setup the audio resampler
-        let target_sample_rate = chromaprint_ctx.sample_rate();
         let mut resampler = decoder
             .decoder
             .resampler(
@@ -215,7 +216,8 @@ impl<P: AsRef<Path>> Analyzer<P> {
                 }
             });
 
-        chromaprint_ctx.start(target_sample_rate, 2)?;
+        // TODO(aksiksi): Export ResetError from rusty-chromaprint.
+        chromaprint_ctx.start(target_sample_rate, 2).expect("failed to start fingerprinter");
 
         for p in audio_packets {
             if p.pts().unwrap() <= 0 {
@@ -272,7 +274,7 @@ impl<P: AsRef<Path>> Analyzer<P> {
 
                     // Feed the i16 samples to Chromaprint. Since we are using the default sampling rate,
                     // Chromaprint will _not_ do any resampling internally.
-                    chromaprint_ctx.feed(samples)?;
+                    chromaprint_ctx.consume(samples);
 
                     if delay.is_none() {
                         break;
@@ -283,10 +285,10 @@ impl<P: AsRef<Path>> Analyzer<P> {
             }
         }
 
-        chromaprint_ctx.finish()?;
+        chromaprint_ctx.finish();
 
-        let chromaprint_hash_delay = chromaprint_ctx.get_delay()?;
-        let item_duration = chromaprint_ctx.get_item_duration()?;
+        let chromaprint_hash_delay = Duration::ZERO;
+        let item_duration = Duration::from_secs_f32(config.item_duration_in_seconds());
 
         // We can use the given hash duration and Chromaprint's item duration to
         // figure out how many hashes we can skip.
@@ -297,8 +299,7 @@ impl<P: AsRef<Path>> Analyzer<P> {
         };
 
         for (i, hash) in chromaprint_ctx
-            .get_fingerprint_raw()?
-            .get()
+            .fingerprint()
             .iter()
             .enumerate()
             .step_by(step_by)

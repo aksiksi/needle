@@ -143,9 +143,6 @@ pub enum Error {
     /// Wraps [std::io::Error].
     #[error("IO error: {0}")]
     IOError(#[from] std::io::Error),
-    /// Wraps [chromaprint_rust::Error].
-    #[error("Chromaprint error: {0}")]
-    ChromaprintError(#[from] chromaprint_rust::Error),
 }
 
 /// Common result type.

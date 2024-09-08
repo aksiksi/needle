@@ -185,7 +185,7 @@ sudo apt-get install \
 cargo install --path .
 ```
 
-This will **dynamically** link against FFmpeg and statically link `chromaprint`.
+This will **dynamically** link against FFmpeg.
 
 #### Dynamic
 
@@ -223,7 +223,7 @@ brew install cmake pkg-config ffmpeg
 cargo install --path .
 ```
 
-This will **dynamically** link against FFmpeg. `chromaprint` will be statically linked.
+This will **dynamically** link against FFmpeg.
 
 ### Windows
 
@@ -242,7 +242,7 @@ cargo vcpkg build
 3. Build:
 
 ```bash
-# Statically link against both FFmpeg and chromaprint
+# Statically link against FFmpeg.
 cargo build --release --features static
 ```
 
@@ -250,7 +250,7 @@ cargo build --release --features static
 
 1. Set the following environment variables:
 
-    a. To dynamically link **both** FFmpeg and `chromaprint`:
+    a. To dynamically link FFmpeg:
 
     ```powershell
     # Powershell
@@ -262,18 +262,6 @@ cargo build --release --features static
     # Git bash
     export VCPKGRS_DYNAMIC=1
     export VCPKGRS_TRIPLET='x64-windows'
-    ```
-
-    b. Just `chromaprint`:
-
-    ```powershell
-    # Powershell
-    $env:CHROMAPRINT_SYS_DYNAMIC='1'
-    ```
-
-    ```bash
-    # Git bash
-    export CHROMAPRINT_SYS_DYNAMIC=1
     ```
 
 2. Build deps:

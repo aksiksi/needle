@@ -20,7 +20,7 @@
           inherit pname;
           inherit version;
           src = ./needle;
-          cargoSha256 = "sha256-aUKzSbyniuk2+UZmrUZjMv+yhcjn+eilnZtCMxzJLZo=";
+          cargoSha256 = "sha256-CUcjt7BLvTSaiiYCuzVilEf0y1zN08Bo8YtvKFVTSiM=";
           # nativeBuildInputs: used only in build phase
           nativeBuildInputs = [
             pkgs.cmake
@@ -30,7 +30,6 @@
           # buildInputs: used only at runtime (i.e., linked against)
           # https://nixos.org/manual/nixpkgs/stable/#ssec-stdenv-dependencies-overview
           buildInputs = [
-            pkgs.chromaprint
             pkgs.ffmpeg-full
           ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
             pkgs.fftw
@@ -58,7 +57,6 @@
       in {
         default = pkgs.mkShell {
           buildInputs = [
-            pkgs.chromaprint
             pkgs.ffmpeg-full
             pkgs.libiconv    # required by rust-ffmpeg build script
             pkgs.pkg-config
