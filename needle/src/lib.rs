@@ -112,6 +112,7 @@ use std::path::PathBuf;
 pub mod audio;
 /// Common utility functions.
 pub mod util;
+mod simhash;
 
 /// Common error type.
 #[derive(thiserror::Error, Debug)]
